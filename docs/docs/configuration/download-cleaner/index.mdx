@@ -94,7 +94,7 @@ A download is cleaned when both `Max Ratio` and `Min Seed Time` are reached, OR 
 </Note>
 
 <Important>
-Both Max Ratio and Max Seed Time cannot be disabled (-1) at the same time. At least one cleanup condition must be configured.
+At least one cleanup condition must be configured: Max Ratio, Max Seed Time, or (on clients that support it) Abandon Incomplete Downloads.
 </Important>
 
 <ConfigSection
@@ -221,6 +221,55 @@ When enabled, this acts as a deletion guard: downloads that have reached their r
 If last-activity data is unavailable for a download, it is kept instead of being deleted.
 
 Supported by **qBittorrent** only.
+
+</ConfigSection>
+
+<ConfigSection
+  title="Abandon Incomplete Downloads"
+>
+
+Also act on **incomplete** downloads this rule matches, for private trackers that only count a hit-and-run once you have downloaded a share of a torrent. TorrentLeech, for example, only gives a hit-and-run for torrents you downloaded at least 10% of, so a stuck download below 10% is safe to drop.
+
+A matching incomplete download is abandoned (the rule's **Action** is applied) when:
+- it was added at least **Abandon After** hours ago, and
+- less than **Abandon Below** percent of it has been downloaded.
+
+Downloads at or above the percentage are never abandoned. They finish and then follow the rule's ratio and seed time settings.
+
+**Example (TorrentLeech):**
+
+| Setting | Value |
+|---|---|
+| Categories | the category your TorrentLeech torrents use |
+| Tracker Patterns | `torrentleech.org` |
+| Privacy Type | `Private` |
+| Max Ratio | `1` |
+| Max Seed Time | `-1` |
+| Abandon Below | `10` % |
+| Abandon After | `24` hours |
+| Action | `Delete`, with **Delete Source Files** |
+
+Below 10% after a day, the download is deleted. Past 10%, it is left alone until it completes, then removed once it reaches a 1:1 ratio.
+
+How the downloaded percentage is measured:
+- Cleanuparr takes the higher of the verified progress and the bytes downloaded over the torrent's life (wasted data included), over the size of the selected files. It never reads lower than what a tracker could count.
+- If the client does not report enough to tell, the download is treated as fully downloaded and never abandoned.
+- A download whose added time is unknown is never abandoned.
+
+What is skipped:
+- Downloads an *arr (Sonarr, Radarr, ...) still has in its queue, and ignored downloads. If an *arr cannot be reached, nothing is abandoned on that run.
+- Downloads that are checking, moving, allocating, fetching metadata or errored.
+- Downloads matched first by a higher-priority rule without abandoning enabled.
+
+**Paused downloads count.** A download you paused yourself is abandoned like any other once it meets the conditions.
+
+When **Delete Source Files** is on, files are kept anyway if another download **in the same download client** uses the same folder, a folder inside it, or a folder that contains it. Downloads in other download clients are not checked, so keep clients that share a download folder in mind.
+
+Supported by **qBittorrent**, **Deluge**, **Transmission**, and **µTorrent**. Not available for **rTorrent**.
+
+<Warning>
+Abandoning deletes or stops downloads before they finish. Check your tracker's hit-and-run rules, and try it with **Dry Run** enabled first: abandoned downloads are then only logged as `download abandoned`.
+</Warning>
 
 </ConfigSection>
 
