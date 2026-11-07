@@ -1,5 +1,5 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed, effect, untracked, input, model, output, viewChildren } from '@angular/core';
-import { form, required, min, minLength, validate, FormField } from '@angular/forms/signals';
+import { form, applyWhen, required, min, max, minLength, validate, FormField } from '@angular/forms/signals';
 import {
   ModalComponent, InputComponent, SelectComponent, ChipInputComponent,
   NumberInputComponent, ToggleComponent, ButtonComponent,
@@ -23,6 +23,9 @@ interface SeedingRuleFormModel {
   maxSeedTime: number | null;
   minSeeders: number | null;
   maxInactiveDays: number | null;
+  abandonEnabled: boolean;
+  abandonBelowPercentage: number | null;
+  abandonAfterHours: number | null;
   action: SeedingRuleAction;
   deleteSourceFiles: boolean;
 }
@@ -60,12 +63,16 @@ export class SeedingRuleModalComponent {
   readonly isSelectedClientTransmission = input(false);
   readonly isSeedersFilterableClient = input(false);
   readonly isInactivityFilterableClient = input(false);
+  readonly isAbandonCapableClient = input(false);
   readonly saved = output<void>();
 
   readonly privacyTypeOptions = PRIVACY_TYPE_OPTIONS;
   readonly actionOptions = ACTION_OPTIONS;
 
   readonly isDeleteAction = computed(() => this.model().action === SeedingRuleAction.Delete);
+
+  /** Abandoning only counts as a removal condition for clients that support it. */
+  readonly isAbandonActive = computed(() => this.isAbandonCapableClient() && this.model().abandonEnabled);
 
   /** Min seed time only delays a removal triggered by max ratio, so it is meaningless without one. */
   readonly isMaxRatioEnabled = computed(() => (this.model().maxRatio ?? -1) >= 0);
@@ -85,8 +92,9 @@ export class SeedingRuleModalComponent {
   private readonly defaults: SeedingRuleFormModel = {
     name: '', categories: [], trackerPatterns: [], tagsAny: [], tagsAll: [],
     privacyType: TorrentPrivacyType.Public, maxRatio: -1, minSeedTime: 0,
-    maxSeedTime: -1, minSeeders: 0, maxInactiveDays: -1, action: SeedingRuleAction.Delete,
-    deleteSourceFiles: true,
+    maxSeedTime: -1, minSeeders: 0, maxInactiveDays: -1,
+    abandonEnabled: false, abandonBelowPercentage: 10, abandonAfterHours: 24,
+    action: SeedingRuleAction.Delete, deleteSourceFiles: true,
   };
   readonly model = signal<SeedingRuleFormModel>({ ...this.defaults });
   readonly form = form(this.model, (p) => {
@@ -97,13 +105,33 @@ export class SeedingRuleModalComponent {
     min(p.maxSeedTime, -1);
     min(p.minSeeders, 0);
     min(p.maxInactiveDays, -1);
+    applyWhen(p.abandonBelowPercentage, () => this.isAbandonActive(), (percentage) => {
+      required(percentage, { message: 'Percentage is required' });
+      min(percentage, 0, { message: 'Percentage must be greater than 0' });
+      max(percentage, 100, { message: 'Percentage cannot exceed 100' });
+      validate(percentage, ({ value }) => (value() ?? 1) <= 0
+        ? { kind: 'positive', message: 'Percentage must be greater than 0' }
+        : undefined);
+    });
+    applyWhen(p.abandonAfterHours, () => this.isAbandonActive(), (hours) => {
+      required(hours, { message: 'Hours are required' });
+      min(hours, 1, { message: 'Hours must be at least 1' });
+    });
     validate(p.maxSeedTime, () => {
       const m = this.model();
-      return (m.maxRatio ?? -1) < 0 && (m.maxSeedTime ?? -1) < 0
-        ? { kind: 'disabled', message: 'Both max ratio and max seed time cannot be disabled at the same time' }
+      return (m.maxRatio ?? -1) < 0 && (m.maxSeedTime ?? -1) < 0 && !this.isAbandonActive()
+        ? {
+          kind: 'disabled',
+          message: this.isAbandonCapableClient()
+            ? 'Set a max ratio, a max seed time or enable abandoning incomplete downloads'
+            : 'Both max ratio and max seed time cannot be disabled at the same time',
+        }
         : undefined;
     });
   });
+
+  readonly abandonPercentageError = computed(() => this.form.abandonBelowPercentage().errors()[0]?.message);
+  readonly abandonHoursError = computed(() => this.form.abandonAfterHours().errors()[0]?.message);
 
   readonly disabledError = computed(() =>
     this.form.maxSeedTime().errors().find(e => e.kind === 'disabled')?.message
@@ -129,6 +157,9 @@ export class SeedingRuleModalComponent {
           maxSeedTime: r.maxSeedTime,
           minSeeders: r.minSeeders ?? 0,
           maxInactiveDays: r.maxInactiveDays ?? -1,
+          abandonEnabled: (r.abandonBelowPercentage ?? -1) > 0,
+          abandonBelowPercentage: (r.abandonBelowPercentage ?? -1) > 0 ? r.abandonBelowPercentage! : this.defaults.abandonBelowPercentage,
+          abandonAfterHours: (r.abandonBelowPercentage ?? -1) > 0 ? r.abandonAfterHours ?? 0 : this.defaults.abandonAfterHours,
           action: r.action,
           deleteSourceFiles: r.deleteSourceFiles,
         } : { ...this.defaults };
@@ -162,6 +193,8 @@ export class SeedingRuleModalComponent {
       maxSeedTime: m.maxSeedTime ?? -1,
       minSeeders: m.minSeeders ?? 0,
       maxInactiveDays: m.maxInactiveDays ?? -1,
+      abandonBelowPercentage: m.abandonEnabled ? m.abandonBelowPercentage ?? -1 : -1,
+      abandonAfterHours: m.abandonEnabled ? m.abandonAfterHours ?? 0 : 0,
       action: m.action,
       deleteSourceFiles: m.deleteSourceFiles,
     };

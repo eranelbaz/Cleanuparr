@@ -21,6 +21,18 @@ public partial class TransmissionService
     }
 
     /// <inheritdoc/>
+    /// <remarks>Status 0 is stopped, 3 queued to download, 4 downloading. 1-2 are checking, so progress is not trusted.</remarks>
+    public override async Task<List<ITorrentItemWrapper>> GetIncompleteDownloads()
+    {
+        var result = await _client.TorrentGetAsync(Fields);
+        return result?.Torrents
+            ?.Where(x => !string.IsNullOrEmpty(x.HashString))
+            .Where(x => x is { PercentDone: < 1, Status: 0 or 3 or 4, IsFinished: not true } && x.Error is not 3)
+            .Select(ITorrentItemWrapper (x) => new TransmissionItemWrapper(x))
+            .ToList() ?? [];
+    }
+
+    /// <inheritdoc/>
     public override async Task<List<IDownloadItem>> GetAllDownloadsLite()
     {
         TransmissionTorrents? result = await _client.TorrentGetAsync(Fields);

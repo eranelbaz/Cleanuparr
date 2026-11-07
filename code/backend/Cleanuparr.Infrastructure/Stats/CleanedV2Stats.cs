@@ -13,7 +13,7 @@ public class CleanedV2Stats
     public int Total { get; set; }
 
     /// <summary>
-    /// Cleaned downloads grouped by clean reason (MaxRatioReached, MaxSeedTimeReached).
+    /// Cleaned downloads grouped by clean reason (MaxRatioReached, MaxSeedTimeReached, AbandonedBelowThreshold).
     /// Keys are PascalCase clean-reason names; only reasons with activity are present.
     /// </summary>
     public Dictionary<string, int> ByReason { get; set; } = new();

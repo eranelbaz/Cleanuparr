@@ -101,6 +101,7 @@ public sealed class DownloadCleaner : GenericHandler
         ignoredDownloads.AddRange(config.IgnoredDownloads);
 
         Dictionary<ISeedingCleanupCapable, List<ITorrentItemWrapper>> downloadServiceToDownloadsMap = new();
+        List<ISeedingCleanupCapable> abandonCapableServices = new();
         List<IDownloadService> loggedInServices = new();
 
         foreach (IDownloadService downloadService in downloadServices)
@@ -125,6 +126,18 @@ public sealed class DownloadCleaner : GenericHandler
                 {
                     downloadServiceToDownloadsMap[seedingCapableService] = clientDownloads;
                 }
+
+                try
+                {
+                    if (await _seedingRulesService.HasAbandonRulesAsync(seedingCapableService))
+                    {
+                        abandonCapableServices.Add(seedingCapableService);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to load abandon rules for download client {clientName}", downloadService.ClientConfig.Name);
+                }
             }
             catch (Exception ex)
             {
@@ -135,7 +148,7 @@ public sealed class DownloadCleaner : GenericHandler
         int totalDownloads = downloadServiceToDownloadsMap.Values.Sum(x => x.Count);
         _logger.LogTrace("Found {count} seeding downloads across {clientCount} clients", totalDownloads, downloadServiceToDownloadsMap.Count);
 
-        if (downloadServiceToDownloadsMap.Count > 0)
+        if (downloadServiceToDownloadsMap.Count > 0 || abandonCapableServices.Count > 0)
         {
             // wait for the downloads to appear in the arr queue
             await Task.Delay(TimeSpan.FromSeconds(10), _timeProvider, cancellationToken);
@@ -149,29 +162,7 @@ public sealed class DownloadCleaner : GenericHandler
             await ProcessArrConfigAsync(ContextProvider.Get<ArrConfig>(nameof(InstanceType.LazyLibrarian)), true);
             await ProcessArrConfigAsync(ContextProvider.Get<ArrConfig>(nameof(InstanceType.Chaptarr)), true);
 
-            foreach (KeyValuePair<ISeedingCleanupCapable, List<ITorrentItemWrapper>> pair in downloadServiceToDownloadsMap)
-            {
-                List<ITorrentItemWrapper> filteredDownloads = [];
-
-                foreach (ITorrentItemWrapper download in pair.Value)
-                {
-                    if (download.IsIgnored(ignoredDownloads))
-                    {
-                        _logger.LogDebug("skip | download is ignored | {name}", download.Name);
-                        continue;
-                    }
-
-                    if (_downloadsProcessedByArrs.Contains(download.DownloadId))
-                    {
-                        _logger.LogDebug("skip | download is used by an arr | {name}", download.Name);
-                        continue;
-                    }
-
-                    filteredDownloads.Add(download);
-                }
-
-                downloadServiceToDownloadsMap[pair.Key] = filteredDownloads;
-            }
+            FilterUnclaimedDownloads(downloadServiceToDownloadsMap, ignoredDownloads);
 
             foreach ((ISeedingCleanupCapable downloadService, List<ITorrentItemWrapper> clientDownloads) in downloadServiceToDownloadsMap)
             {
@@ -199,8 +190,32 @@ public sealed class DownloadCleaner : GenericHandler
 
                 await _seedingRulesService.CleanAsync(downloadService, clientDownloads);
             }
+
+            // Fetched only now, after the arr queues are read, so progress is fresh when acting on it.
+            foreach (ISeedingCleanupCapable downloadService in abandonCapableServices)
+            {
+                using IDisposable _ = LogContext.PushProperty(LogProperties.DownloadClientType, downloadService.ClientConfig.Type.ToString());
+                using IDisposable _2 = LogContext.PushProperty(LogProperties.DownloadClientName, downloadService.ClientConfig.Name);
+
+                List<ITorrentItemWrapper> incompleteDownloads;
+
+                try
+                {
+                    incompleteDownloads = FilterUnclaimed(await downloadService.GetIncompleteDownloads(), ignoredDownloads);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to get incomplete downloads from download client {clientName}", downloadService.ClientConfig.Name);
+                    continue;
+                }
+
+                _logger.LogTrace("Found {count} incomplete downloads to evaluate for abandoning", incompleteDownloads.Count);
+
+                await _seedingRulesService.AbandonAsync(downloadService, incompleteDownloads);
+            }
         }
-        else
+
+        if (downloadServiceToDownloadsMap.Count is 0 && abandonCapableServices.Count is 0)
         {
             _logger.LogInformation("No seeding downloads found");
         }
@@ -213,6 +228,44 @@ public sealed class DownloadCleaner : GenericHandler
         {
             _logger.LogError(ex, "Failed to process orphaned files");
         }
+    }
+
+    /// <summary>
+    /// Drops ignored downloads and downloads an arr still has queued, in place.
+    /// </summary>
+    private void FilterUnclaimedDownloads(Dictionary<ISeedingCleanupCapable, List<ITorrentItemWrapper>> downloadsByService, List<string> ignoredDownloads)
+    {
+        foreach (ISeedingCleanupCapable downloadService in downloadsByService.Keys.ToList())
+        {
+            downloadsByService[downloadService] = FilterUnclaimed(downloadsByService[downloadService], ignoredDownloads);
+        }
+    }
+
+    /// <summary>
+    /// Drops ignored downloads and downloads an arr still has queued.
+    /// </summary>
+    private List<ITorrentItemWrapper> FilterUnclaimed(List<ITorrentItemWrapper> downloads, List<string> ignoredDownloads)
+    {
+        List<ITorrentItemWrapper> filteredDownloads = [];
+
+        foreach (ITorrentItemWrapper download in downloads)
+        {
+            if (download.IsIgnored(ignoredDownloads))
+            {
+                _logger.LogDebug("skip | download is ignored | {name}", download.Name);
+                continue;
+            }
+
+            if (_downloadsProcessedByArrs.Contains(download.DownloadId))
+            {
+                _logger.LogDebug("skip | download is used by an arr | {name}", download.Name);
+                continue;
+            }
+
+            filteredDownloads.Add(download);
+        }
+
+        return filteredDownloads;
     }
 
     protected override async Task ProcessInstanceAsync(ArrInstance instance)

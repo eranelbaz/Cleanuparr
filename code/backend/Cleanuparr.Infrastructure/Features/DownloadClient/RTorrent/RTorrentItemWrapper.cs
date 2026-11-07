@@ -44,6 +44,10 @@ public sealed class RTorrentItemWrapper : ITorrentItemWrapper
 
     public long DownloadedBytes => Info.CompletedBytes;
 
+    /// <inheritdoc/>
+    /// <remarks>Abandoning is not supported for rTorrent; always returns 100 so it is never abandoned.</remarks>
+    public double HnrDownloadedPercentage => 100;
+
     public long DownloadSpeed => Info.DownRate;
 
     /// <summary>

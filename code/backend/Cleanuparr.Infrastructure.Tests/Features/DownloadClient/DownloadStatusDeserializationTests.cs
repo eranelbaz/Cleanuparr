@@ -75,4 +75,32 @@ public class DownloadStatusDeserializationTests
         result.ShouldNotBeNull();
         result.State.ShouldBe(DelugeState.Unknown);
     }
+
+    [Fact]
+    public void HnrFields_Deserialize()
+    {
+        var json = BaseDelugePayload.Replace(
+            "\"download_location\": \"/downloads\"",
+            "\"download_location\": \"/downloads\", \"time_added\": 1700000000.25, \"progress\": 7.5, \"total_wanted\": 512, \"all_time_download\": 64");
+
+        var result = JsonSerializer.Deserialize<DownloadStatus>(json, CleanuparrJsonOptions.ExternalApiRead);
+
+        result.ShouldNotBeNull();
+        result.TimeAdded.ShouldBe(1700000000.25);
+        result.Progress.ShouldBe(7.5);
+        result.TotalWanted.ShouldBe(512);
+        result.AllTimeDownload.ShouldBe(64);
+    }
+
+    [Fact]
+    public void HnrFields_WhenAbsent_AreNull()
+    {
+        var result = JsonSerializer.Deserialize<DownloadStatus>(BaseDelugePayload, CleanuparrJsonOptions.ExternalApiRead);
+
+        result.ShouldNotBeNull();
+        result.TimeAdded.ShouldBe(0);
+        result.Progress.ShouldBeNull();
+        result.TotalWanted.ShouldBeNull();
+        result.AllTimeDownload.ShouldBeNull();
+    }
 }

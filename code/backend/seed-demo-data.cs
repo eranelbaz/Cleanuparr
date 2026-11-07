@@ -1083,7 +1083,7 @@ for (int i = 0; i < removedItems.Count; i++)
     });
 }
 
-CleanReason[] cleanReasons = [CleanReason.MaxRatioReached, CleanReason.MaxSeedTimeReached];
+CleanReason[] cleanReasons = [CleanReason.MaxRatioReached, CleanReason.MaxSeedTimeReached, CleanReason.AbandonedBelowThreshold];
 List<SeededItem> cleanedOwners = seededItems.OrderBy(_ => rng.Next()).Take(CleanedTotal).ToList();
 List<DateTimeOffset> cleanedTimestamps = BuildTimestamps(cleanedOwners.Count, CleanedRecent24h, 25);
 

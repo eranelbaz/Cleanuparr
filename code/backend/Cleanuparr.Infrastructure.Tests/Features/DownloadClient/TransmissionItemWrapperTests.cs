@@ -790,4 +790,47 @@ public class TransmissionItemWrapperTests
         // Assert
         result.ShouldBeNull();
     }
+
+    [Fact]
+    public void HnrDownloadedPercentage_WhenDataAlreadyOnDisk_UsesPercentDone()
+    {
+        // Arrange
+        // A re-added torrent: data verified on disk, but almost nothing downloaded in this session.
+        TorrentInfo torrentInfo = new() { PercentDone = 0.6, DownloadedEver = 0, SizeWhenDone = 1000, TotalSize = 4000 };
+        TransmissionItemWrapper wrapper = new(torrentInfo);
+
+        // Act
+        double result = wrapper.HnrDownloadedPercentage;
+
+        // Assert
+        result.ShouldBe(60, 0.0001);
+    }
+
+    [Fact]
+    public void HnrDownloadedPercentage_DividesBySizeWhenDone()
+    {
+        // Arrange
+        TorrentInfo torrentInfo = new() { PercentDone = 0.01, DownloadedEver = 80, SizeWhenDone = 1000, TotalSize = 4000 };
+        TransmissionItemWrapper wrapper = new(torrentInfo);
+
+        // Act
+        double result = wrapper.HnrDownloadedPercentage;
+
+        // Assert
+        result.ShouldBe(8, 0.0001);
+    }
+
+    [Fact]
+    public void HnrDownloadedPercentage_WhenFieldsMissing_Returns100()
+    {
+        // Arrange
+        TorrentInfo torrentInfo = new() { DownloadedEver = 0, TotalSize = 4000 };
+        TransmissionItemWrapper wrapper = new(torrentInfo);
+
+        // Act
+        double result = wrapper.HnrDownloadedPercentage;
+
+        // Assert
+        result.ShouldBe(100);
+    }
 }

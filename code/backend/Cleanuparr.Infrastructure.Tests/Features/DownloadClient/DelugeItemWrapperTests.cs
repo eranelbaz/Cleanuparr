@@ -533,7 +533,26 @@ public class DelugeItemWrapperTests
     }
 
     [Fact]
-    public void AddedOn_ReturnsNull()
+    public void AddedOn_ReturnsCorrectValue()
+    {
+        // Arrange
+        var downloadStatus = new DownloadStatus
+        {
+            TimeAdded = 1700000000.5,
+            Trackers = new List<Tracker>(),
+            DownloadLocation = "/test/path"
+        };
+        var wrapper = new DelugeItemWrapper(downloadStatus);
+
+        // Act
+        var result = wrapper.AddedOn;
+
+        // Assert
+        result.ShouldBe(DateTimeOffset.FromUnixTimeMilliseconds(1700000000500));
+    }
+
+    [Fact]
+    public void AddedOn_WhenZero_ReturnsNull()
     {
         // Arrange
         var downloadStatus = new DownloadStatus
@@ -548,5 +567,47 @@ public class DelugeItemWrapperTests
 
         // Assert
         result.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData(5.0, 50L, 1000L, 5.0)] // progress wins
+    [InlineData(1.0, 80L, 1000L, 8.0)] // all-time downloaded wins
+    public void HnrDownloadedPercentage_UsesWantedFields(double progress, long allTimeDownload, long totalWanted, double expected)
+    {
+        // Arrange
+        var downloadStatus = new DownloadStatus
+        {
+            Progress = progress,
+            AllTimeDownload = allTimeDownload,
+            TotalWanted = totalWanted,
+            Size = totalWanted * 10,
+            Trackers = new List<Tracker>(),
+            DownloadLocation = "/test/path"
+        };
+        var wrapper = new DelugeItemWrapper(downloadStatus);
+
+        // Act
+        var result = wrapper.HnrDownloadedPercentage;
+
+        // Assert
+        result.ShouldBe(expected, 0.0001);
+    }
+
+    [Fact]
+    public void HnrDownloadedPercentage_WhenFieldsMissing_Returns100()
+    {
+        // Arrange
+        var downloadStatus = new DownloadStatus
+        {
+            Trackers = new List<Tracker>(),
+            DownloadLocation = "/test/path"
+        };
+        var wrapper = new DelugeItemWrapper(downloadStatus);
+
+        // Act
+        var result = wrapper.HnrDownloadedPercentage;
+
+        // Assert
+        result.ShouldBe(100);
     }
 }

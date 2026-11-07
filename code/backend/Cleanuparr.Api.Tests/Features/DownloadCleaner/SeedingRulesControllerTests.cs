@@ -48,7 +48,9 @@ public class SeedingRulesControllerTests : IDisposable
         int minSeeders = 0,
         double maxInactiveDays = -1,
         bool deleteSourceFiles = true,
-        SeedingRuleAction action = SeedingRuleAction.Delete)
+        SeedingRuleAction action = SeedingRuleAction.Delete,
+        double abandonBelowPercentage = -1,
+        double abandonAfterHours = 0)
     {
         return new SeedingRuleRequest
         {
@@ -66,6 +68,8 @@ public class SeedingRulesControllerTests : IDisposable
             MaxInactiveDays = maxInactiveDays,
             DeleteSourceFiles = deleteSourceFiles,
             Action = action,
+            AbandonBelowPercentage = abandonBelowPercentage,
+            AbandonAfterHours = abandonAfterHours,
         };
     }
 
@@ -227,6 +231,79 @@ public class SeedingRulesControllerTests : IDisposable
         var result = await _controller.CreateSeedingRule(client.Id, request);
 
         GetCreatedRule(result).MaxInactiveDays.ShouldBe(30);
+    }
+
+    [Theory]
+    [InlineData(DownloadClientTypeName.qBittorrent)]
+    [InlineData(DownloadClientTypeName.Transmission)]
+    [InlineData(DownloadClientTypeName.Deluge)]
+    [InlineData(DownloadClientTypeName.uTorrent)]
+    public async Task CreateSeedingRule_AbandonOnlyRule_SetsAbandonFields(DownloadClientTypeName typeName)
+    {
+        DownloadClientConfig client = SeedingRulesTestDataFactory.AddDownloadClient(_dataContext, typeName, $"Test {typeName}");
+        SeedingRuleRequest request = CreateValidRequest(maxRatio: -1, maxSeedTime: -1, abandonBelowPercentage: 10, abandonAfterHours: 24);
+
+        IActionResult result = await _controller.CreateSeedingRule(client.Id, request);
+
+        SeedingRuleResponse created = GetCreatedRule(result);
+        created.AbandonBelowPercentage.ShouldBe(10);
+        created.AbandonAfterHours.ShouldBe(24);
+        SeedingRuleResponse stored = GetRulesFromOk(await _controller.GetSeedingRules(client.Id)).Single();
+        stored.AbandonBelowPercentage.ShouldBe(10);
+        stored.AbandonAfterHours.ShouldBe(24);
+    }
+
+    [Fact]
+    public async Task CreateSeedingRule_AbandonFieldsOmitted_DefaultToDisabled()
+    {
+        DownloadClientConfig client = SeedingRulesTestDataFactory.AddDownloadClient(_dataContext);
+        SeedingRuleRequest request = new()
+        {
+            Name = "Rule without abandon",
+            Categories = ["movies"],
+            MaxRatio = 2.0,
+        };
+
+        IActionResult result = await _controller.CreateSeedingRule(client.Id, request);
+
+        SeedingRuleResponse created = GetCreatedRule(result);
+        created.AbandonBelowPercentage.ShouldBe(-1);
+        created.AbandonAfterHours.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task CreateSeedingRule_RTorrent_IgnoresAbandonAndReturnsNull()
+    {
+        DownloadClientConfig client = SeedingRulesTestDataFactory.AddDownloadClient(_dataContext, DownloadClientTypeName.rTorrent, "Test rTorrent");
+        SeedingRuleRequest request = CreateValidRequest(abandonBelowPercentage: 10, abandonAfterHours: 24);
+
+        IActionResult result = await _controller.CreateSeedingRule(client.Id, request);
+
+        SeedingRuleResponse created = GetCreatedRule(result);
+        created.AbandonBelowPercentage.ShouldBeNull();
+        created.AbandonAfterHours.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task CreateSeedingRule_RTorrent_AbandonOnlyRule_ThrowsValidationException()
+    {
+        DownloadClientConfig client = SeedingRulesTestDataFactory.AddDownloadClient(_dataContext, DownloadClientTypeName.rTorrent, "Test rTorrent");
+        SeedingRuleRequest request = CreateValidRequest(maxRatio: -1, maxSeedTime: -1, abandonBelowPercentage: 10, abandonAfterHours: 24);
+
+        await Should.ThrowAsync<CustomValidationException>(() => _controller.CreateSeedingRule(client.Id, request));
+    }
+
+    [Theory]
+    [InlineData(0, 24)]
+    [InlineData(101, 24)]
+    [InlineData(10, -1)]
+    [InlineData(10, 0)]
+    public async Task CreateSeedingRule_InvalidAbandonValues_ThrowsValidationException(double abandonBelowPercentage, double abandonAfterHours)
+    {
+        DownloadClientConfig client = SeedingRulesTestDataFactory.AddDownloadClient(_dataContext);
+        SeedingRuleRequest request = CreateValidRequest(abandonBelowPercentage: abandonBelowPercentage, abandonAfterHours: abandonAfterHours);
+
+        await Should.ThrowAsync<CustomValidationException>(() => _controller.CreateSeedingRule(client.Id, request));
     }
 
     [Fact]
@@ -424,6 +501,35 @@ public class SeedingRulesControllerTests : IDisposable
 
         SeedingRuleResponse updated = GetUpdatedRule(result);
         updated.MaxInactiveDays.ShouldBe(30);
+    }
+
+    [Fact]
+    public async Task UpdateSeedingRule_UpdatesAbandonFields()
+    {
+        var client = SeedingRulesTestDataFactory.AddDownloadClient(_dataContext);
+        var rule = SeedingRulesTestDataFactory.AddQBitSeedingRule(_dataContext, client.Id);
+
+        var request = CreateValidRequest(abandonBelowPercentage: 10, abandonAfterHours: 48);
+
+        var result = await _controller.UpdateSeedingRule(rule.Id, request);
+
+        SeedingRuleResponse updated = GetUpdatedRule(result);
+        updated.AbandonBelowPercentage.ShouldBe(10);
+        updated.AbandonAfterHours.ShouldBe(48);
+    }
+
+    [Fact]
+    public async Task UpdateSeedingRule_DisablesAbandon()
+    {
+        var client = SeedingRulesTestDataFactory.AddDownloadClient(_dataContext);
+        var rule = SeedingRulesTestDataFactory.AddQBitSeedingRule(_dataContext, client.Id);
+        await _controller.UpdateSeedingRule(rule.Id, CreateValidRequest(abandonBelowPercentage: 10, abandonAfterHours: 48));
+
+        var result = await _controller.UpdateSeedingRule(rule.Id, CreateValidRequest());
+
+        SeedingRuleResponse updated = GetUpdatedRule(result);
+        updated.AbandonBelowPercentage.ShouldBe(-1);
+        updated.AbandonAfterHours.ShouldBe(0);
     }
 
     [Fact]

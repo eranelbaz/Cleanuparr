@@ -163,6 +163,14 @@ namespace Cleanuparr.Persistence.Migrations.Data
                         .HasColumnType("TEXT")
                         .HasColumnName("id");
 
+                    b.Property<double>("AbandonAfterHours")
+                        .HasColumnType("REAL")
+                        .HasColumnName("abandon_after_hours");
+
+                    b.Property<double>("AbandonBelowPercentage")
+                        .HasColumnType("REAL")
+                        .HasColumnName("abandon_below_percentage");
+
                     b.Property<string>("Action")
                         .IsRequired()
                         .HasColumnType("TEXT")
@@ -310,6 +318,14 @@ namespace Cleanuparr.Persistence.Migrations.Data
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
                         .HasColumnName("id");
+
+                    b.Property<double>("AbandonAfterHours")
+                        .HasColumnType("REAL")
+                        .HasColumnName("abandon_after_hours");
+
+                    b.Property<double>("AbandonBelowPercentage")
+                        .HasColumnType("REAL")
+                        .HasColumnName("abandon_below_percentage");
 
                     b.Property<string>("Action")
                         .IsRequired()
@@ -459,6 +475,14 @@ namespace Cleanuparr.Persistence.Migrations.Data
                         .HasColumnType("TEXT")
                         .HasColumnName("id");
 
+                    b.Property<double>("AbandonAfterHours")
+                        .HasColumnType("REAL")
+                        .HasColumnName("abandon_after_hours");
+
+                    b.Property<double>("AbandonBelowPercentage")
+                        .HasColumnType("REAL")
+                        .HasColumnName("abandon_below_percentage");
+
                     b.Property<string>("Action")
                         .IsRequired()
                         .HasColumnType("TEXT")
@@ -537,6 +561,14 @@ namespace Cleanuparr.Persistence.Migrations.Data
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
                         .HasColumnName("id");
+
+                    b.Property<double>("AbandonAfterHours")
+                        .HasColumnType("REAL")
+                        .HasColumnName("abandon_after_hours");
+
+                    b.Property<double>("AbandonBelowPercentage")
+                        .HasColumnType("REAL")
+                        .HasColumnName("abandon_below_percentage");
 
                     b.Property<string>("Action")
                         .IsRequired()

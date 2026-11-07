@@ -215,7 +215,7 @@ public sealed class QBitSeedingRuleTests
         };
 
         var exception = Should.Throw<CustomValidationException>(() => config.Validate());
-        exception.Message.ShouldBe("Either max ratio or max seed time must be set to a non-negative value");
+        exception.Message.ShouldBe("Either max ratio, max seed time or abandon below percentage must be set");
     }
 
     [Theory]
@@ -235,7 +235,7 @@ public sealed class QBitSeedingRuleTests
         };
 
         var exception = Should.Throw<CustomValidationException>(() => config.Validate());
-        exception.Message.ShouldBe("Either max ratio or max seed time must be set to a non-negative value");
+        exception.Message.ShouldBe("Either max ratio, max seed time or abandon below percentage must be set");
     }
 
     [Theory]
@@ -466,4 +466,153 @@ public sealed class QBitSeedingRuleTests
 
         config.DeleteSourceFiles.ShouldBeFalse();
     }
+
+    #region Validate - Abandon Validation
+
+    [Fact]
+    public void Abandon_DefaultsToDisabled()
+    {
+        var rule = new QBitSeedingRule { Name = "test", MaxSeedTime = 24 };
+
+        rule.AbandonBelowPercentage.ShouldBe(-1);
+        rule.AbandonAfterHours.ShouldBe(0);
+        ((IAbandonable)rule).IsAbandonEnabled.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Validate_WithOnlyAbandon_DoesNotThrow()
+    {
+        var config = new QBitSeedingRule
+        {
+            Name = "test-category",
+            Categories = ["test-category"],
+            MaxRatio = -1,
+            MaxSeedTime = -1,
+            AbandonBelowPercentage = 10,
+            AbandonAfterHours = 24
+        };
+
+        Should.NotThrow(() => config.Validate());
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(0.5)]
+    [InlineData(10)]
+    [InlineData(100)]
+    public void Validate_WithValidAbandonBelowPercentage_DoesNotThrow(double percentage)
+    {
+        var config = new QBitSeedingRule
+        {
+            Name = "test-category",
+            Categories = ["test-category"],
+            MaxRatio = 1,
+            MaxSeedTime = -1,
+            AbandonBelowPercentage = percentage,
+            AbandonAfterHours = 24
+        };
+
+        Should.NotThrow(() => config.Validate());
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-0.5)]
+    [InlineData(-2)]
+    [InlineData(100.1)]
+    public void Validate_WithInvalidAbandonBelowPercentage_ThrowsValidationException(double percentage)
+    {
+        var config = new QBitSeedingRule
+        {
+            Name = "test-category",
+            Categories = ["test-category"],
+            MaxRatio = 1,
+            MaxSeedTime = -1,
+            AbandonBelowPercentage = percentage
+        };
+
+        var exception = Should.Throw<CustomValidationException>(() => config.Validate());
+        exception.Message.ShouldBe("Abandon below percentage must be -1 (disabled) or greater than 0 and at most 100");
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(0)]
+    [InlineData(0.5)]
+    public void Validate_WithAbandonAfterHoursBelowOne_ThrowsValidationException(double hours)
+    {
+        var config = new QBitSeedingRule
+        {
+            Name = "test-category",
+            Categories = ["test-category"],
+            MaxRatio = 1,
+            MaxSeedTime = -1,
+            AbandonBelowPercentage = 10,
+            AbandonAfterHours = hours
+        };
+
+        var exception = Should.Throw<CustomValidationException>(() => config.Validate());
+        exception.Message.ShouldBe("Abandon after hours must be at least 1");
+    }
+
+    [Fact]
+    public void Validate_WithAbandonDisabled_IgnoresAbandonAfterHours()
+    {
+        var config = new QBitSeedingRule
+        {
+            Name = "test-category",
+            Categories = ["test-category"],
+            MaxRatio = 1,
+            MaxSeedTime = -1,
+            AbandonBelowPercentage = -1,
+            AbandonAfterHours = 0
+        };
+
+        Should.NotThrow(() => config.Validate());
+    }
+
+    [Fact]
+    public void Validate_RTorrentRule_WithBothNegative_KeepsOriginalMessage()
+    {
+        var config = new RTorrentSeedingRule
+        {
+            Name = "test-category",
+            Categories = ["test-category"],
+            MaxRatio = -1,
+            MaxSeedTime = -1
+        };
+
+        var exception = Should.Throw<CustomValidationException>(() => config.Validate());
+        exception.Message.ShouldBe("Either max ratio or max seed time must be set to a non-negative value");
+    }
+
+    [Fact]
+    public void RTorrentRule_IsNotAbandonable()
+    {
+        new RTorrentSeedingRule().ShouldNotBeAssignableTo<IAbandonable>();
+    }
+
+    [Theory]
+    [MemberData(nameof(AbandonableRules))]
+    public void Validate_EachAbandonableClient_AcceptsAbandonOnlyRule(ISeedingRule rule)
+    {
+        rule.Name = "test-category";
+        rule.Categories = ["test-category"];
+        rule.MaxRatio = -1;
+        rule.MaxSeedTime = -1;
+        ((IAbandonable)rule).AbandonBelowPercentage = 10;
+        ((IAbandonable)rule).AbandonAfterHours = 24;
+
+        Should.NotThrow(() => rule.Validate());
+    }
+
+    public static TheoryData<ISeedingRule> AbandonableRules() =>
+    [
+        new QBitSeedingRule(),
+        new DelugeSeedingRule(),
+        new TransmissionSeedingRule(),
+        new UTorrentSeedingRule()
+    ];
+
+    #endregion
 }

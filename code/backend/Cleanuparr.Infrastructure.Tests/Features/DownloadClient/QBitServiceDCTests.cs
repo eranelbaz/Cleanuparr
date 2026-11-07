@@ -3,6 +3,7 @@ using Cleanuparr.Domain.Enums;
 using Cleanuparr.Infrastructure.Features.DownloadClient.QBittorrent;
 using Cleanuparr.Persistence.Models.Configuration.DownloadCleaner;
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 using QBittorrent.Client;
 using Shouldly;
 using Xunit;
@@ -341,6 +342,144 @@ public class QBitServiceDCTests : IClassFixture<QBitServiceFixture>
                 { "is_private", Newtonsoft.Json.Linq.JToken.FromObject(false) }
             }
         };
+    }
+
+    public class GetIncompleteDownloads_Tests : QBitServiceDCTests
+    {
+        public GetIncompleteDownloads_Tests(QBitServiceFixture fixture) : base(fixture)
+        {
+        }
+
+        [Fact]
+        public async Task ReturnsOnlyIncompleteTorrentsWithTrustedProgress()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+
+            var torrentList = new[]
+            {
+                new TorrentInfo { Hash = "downloading", Name = "1", State = TorrentState.Downloading, Progress = 0.05 },
+                new TorrentInfo { Hash = "stalled", Name = "2", State = TorrentState.StalledDownload, Progress = 0.05 },
+                new TorrentInfo { Hash = "paused", Name = "3", State = TorrentState.PausedDownload, Progress = 0.05 },
+                new TorrentInfo { Hash = "queued", Name = "4", State = TorrentState.QueuedDownload, Progress = 0.05 },
+                new TorrentInfo { Hash = "complete", Name = "5", State = TorrentState.Uploading, Progress = 1 },
+                new TorrentInfo { Hash = "complete-paused", Name = "6", State = TorrentState.PausedUpload, Progress = 1 },
+                new TorrentInfo { Hash = "checking", Name = "7", State = TorrentState.CheckingDownload, Progress = 0.05 },
+                new TorrentInfo { Hash = "resume-data", Name = "8", State = TorrentState.CheckingResumeData, Progress = 0.05 },
+                new TorrentInfo { Hash = "queued-check", Name = "9", State = TorrentState.QueuedForChecking, Progress = 0.05 },
+                new TorrentInfo { Hash = "moving", Name = "10", State = TorrentState.Moving, Progress = 0.05 },
+                new TorrentInfo { Hash = "allocating", Name = "11", State = TorrentState.Allocating, Progress = 0.05 },
+                new TorrentInfo { Hash = "metadata", Name = "12", State = TorrentState.FetchingMetadata, Progress = 0 },
+                new TorrentInfo { Hash = "error", Name = "13", State = TorrentState.Error, Progress = 0.05 },
+                new TorrentInfo { Hash = "missing", Name = "14", State = TorrentState.MissingFiles, Progress = 0.05 },
+                new TorrentInfo { Hash = "unknown", Name = "15", State = TorrentState.Unknown, Progress = 0.05 },
+                new TorrentInfo { Hash = "", Name = "16", State = TorrentState.Downloading, Progress = 0.05 }
+            };
+
+            _fixture.ClientWrapper
+                .GetTorrentListAsync(Arg.Is<TorrentListQuery>(q => q.Filter == TorrentListFilter.All))
+                .Returns(torrentList);
+
+            _fixture.ClientWrapper
+                .GetTorrentTrackersAsync(Arg.Any<string>())
+                .Returns(Array.Empty<TorrentTracker>());
+
+            _fixture.ClientWrapper
+                .GetTorrentPropertiesAsync(Arg.Any<string>())
+                .Returns(new TorrentProperties
+                {
+                    AdditionalData = new Dictionary<string, Newtonsoft.Json.Linq.JToken>
+                    {
+                        { "is_private", Newtonsoft.Json.Linq.JToken.FromObject(true) }
+                    }
+                });
+
+            // Act
+            List<ITorrentItemWrapper> result = await sut.GetIncompleteDownloads();
+
+            // Assert
+            result.Select(x => x.DownloadId).ShouldBe(["downloading", "stalled", "paused", "queued"]);
+            result.ShouldAllBe(x => x.IsPrivate);
+        }
+
+        [Fact]
+        public async Task NeverReturnsCompletedOrUploadSideTorrents()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+
+            TorrentState[] uploadSide =
+            [
+                TorrentState.Uploading, TorrentState.ForcedUpload, TorrentState.StalledUpload,
+                TorrentState.PausedUpload, TorrentState.QueuedUpload, TorrentState.CheckingUpload
+            ];
+
+            var torrentList = Enum.GetValues<TorrentState>()
+                .SelectMany(state => new[]
+                {
+                    new TorrentInfo { Hash = $"{state}-partial", Name = "p", State = state, Progress = 0.05 },
+                    new TorrentInfo { Hash = $"{state}-complete", Name = "c", State = state, Progress = 1 }
+                })
+                .ToArray();
+
+            _fixture.ClientWrapper
+                .GetTorrentListAsync(Arg.Any<TorrentListQuery>())
+                .Returns(torrentList);
+
+            _fixture.ClientWrapper
+                .GetTorrentTrackersAsync(Arg.Any<string>())
+                .Returns(Array.Empty<TorrentTracker>());
+
+            _fixture.ClientWrapper
+                .GetTorrentPropertiesAsync(Arg.Any<string>())
+                .Returns(new TorrentProperties { AdditionalData = new Dictionary<string, Newtonsoft.Json.Linq.JToken>() });
+
+            // Act
+            List<ITorrentItemWrapper> result = await sut.GetIncompleteDownloads();
+
+            // Assert
+            result.ShouldNotBeEmpty();
+            result.ShouldAllBe(x => x.CompletionPercentage < 100);
+            result.Cast<QBitItemWrapper>().ShouldAllBe(x => !uploadSide.Contains(x.Info.State));
+        }
+
+        [Fact]
+        public async Task SkipsTorrent_WhenItNoLongerExists()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+
+            _fixture.ClientWrapper
+                .GetTorrentListAsync(Arg.Any<TorrentListQuery>())
+                .Returns(new[] { new TorrentInfo { Hash = "gone", Name = "Gone", State = TorrentState.Downloading, Progress = 0.05 } });
+
+            _fixture.ClientWrapper
+                .GetTorrentTrackersAsync("gone")
+                .Returns((IReadOnlyList<TorrentTracker>?)null);
+
+            // Act
+            List<ITorrentItemWrapper> result = await sut.GetIncompleteDownloads();
+
+            // Assert
+            result.ShouldBeEmpty();
+        }
+
+        [Fact]
+        public async Task ReturnsEmptyList_WhenNull()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+
+            _fixture.ClientWrapper
+                .GetTorrentListAsync(Arg.Any<TorrentListQuery>())
+                .Returns((IReadOnlyList<TorrentInfo>?)null);
+
+            // Act
+            List<ITorrentItemWrapper> result = await sut.GetIncompleteDownloads();
+
+            // Assert
+            result.ShouldBeEmpty();
+        }
     }
 
     public class FilterDownloadsToBeCleanedAsync_Tests : QBitServiceDCTests
@@ -844,6 +983,363 @@ public class QBitServiceDCTests : IClassFixture<QBitServiceFixture>
                 .DeleteAsync(Arg.Is<IEnumerable<string>>(h => h.Contains("public-hash")), false);
             await _fixture.ClientWrapper.Received(1)
                 .DeleteAsync(Arg.Is<IEnumerable<string>>(h => h.Contains("private-hash")), false);
+        }
+    }
+
+    public class AbandonDownloadsAsync_Tests : QBitServiceDCTests
+    {
+        public AbandonDownloadsAsync_Tests(QBitServiceFixture fixture) : base(fixture)
+        {
+        }
+
+        private static QBitItemWrapper CreateIncomplete(
+            string hash,
+            double progress = 0.03,
+            double ageHours = 48,
+            string savePath = "/downloads",
+            string? name = null,
+            string tracker = "https://tracker.torrentleech.org/announce",
+            bool hasAddedOn = true) =>
+            new(new TorrentInfo
+            {
+                Hash = hash,
+                Name = name ?? $"Test {hash}",
+                Category = "tl",
+                State = TorrentState.Downloading,
+                Progress = progress,
+                Downloaded = (long)(progress * 1000),
+                Size = 1000,
+                SavePath = savePath,
+                AddedOn = hasAddedOn ? DateTime.UtcNow.AddHours(-ageHours) : null
+            }, [new TorrentTracker { Url = tracker }], true);
+
+        private static QBitSeedingRule CreateRule(
+            double abandonBelow = 10,
+            double abandonAfterHours = 24,
+            SeedingRuleAction action = SeedingRuleAction.Delete,
+            bool deleteSourceFiles = true) =>
+            new()
+            {
+                Name = "TorrentLeech",
+                Categories = ["tl"],
+                TrackerPatterns = ["torrentleech.org"],
+                PrivacyType = TorrentPrivacyType.Private,
+                MaxRatio = 1,
+                MaxSeedTime = -1,
+                AbandonBelowPercentage = abandonBelow,
+                AbandonAfterHours = abandonAfterHours,
+                Action = action,
+                DeleteSourceFiles = deleteSourceFiles
+            };
+
+        private void SetupClient(params QBitItemWrapper[] allTorrents)
+        {
+            _fixture.ClientWrapper
+                .DeleteAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<bool>())
+                .Returns(Task.CompletedTask);
+            _fixture.ClientWrapper
+                .PauseAsync(Arg.Any<IEnumerable<string>>())
+                .Returns(Task.CompletedTask);
+            _fixture.ClientWrapper
+                .GetTorrentListAsync(Arg.Any<TorrentListQuery>())
+                .Returns(allTorrents.Select(t => t.Info).ToArray());
+        }
+
+        [Fact]
+        public async Task DeletesWithFiles_WhenOldEnoughAndBelowThreshold()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+            var torrent = CreateIncomplete("hash1");
+            SetupClient(torrent);
+
+            // Act
+            await sut.AbandonDownloadsAsync([torrent], [CreateRule()]);
+
+            // Assert
+            await _fixture.ClientWrapper.Received(1)
+                .DeleteAsync(Arg.Is<IEnumerable<string>>(h => h.Single() == "hash1"), true);
+            await _fixture.EventPublisher.Received(1)
+                .PublishDownloadCleaned(Arg.Any<double>(), TimeSpan.Zero, "tl", CleanReason.AbandonedBelowThreshold);
+        }
+
+        [Theory]
+        [InlineData(0.10)] // exactly at the threshold
+        [InlineData(0.50)]
+        public async Task KeepsTorrent_WhenAtOrAboveThreshold(double progress)
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+            var torrent = CreateIncomplete("hash1", progress: progress);
+            SetupClient(torrent);
+
+            // Act
+            await sut.AbandonDownloadsAsync([torrent], [CreateRule()]);
+
+            // Assert
+            await _fixture.ClientWrapper.DidNotReceive().DeleteAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<bool>());
+        }
+
+        [Fact]
+        public async Task KeepsTorrent_WhenWastedBytesPushItAboveThreshold()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+            var torrent = new QBitItemWrapper(new TorrentInfo
+            {
+                Hash = "hash1",
+                Name = "Wasted",
+                Category = "tl",
+                State = TorrentState.Downloading,
+                Progress = 0.03,
+                Downloaded = 150,
+                Size = 1000,
+                SavePath = "/downloads",
+                AddedOn = DateTime.UtcNow.AddHours(-48)
+            }, [new TorrentTracker { Url = "https://tracker.torrentleech.org/announce" }], true);
+            SetupClient(torrent);
+
+            // Act
+            await sut.AbandonDownloadsAsync([torrent], [CreateRule()]);
+
+            // Assert
+            await _fixture.ClientWrapper.DidNotReceive().DeleteAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<bool>());
+        }
+
+        [Fact]
+        public async Task KeepsTorrent_WhenYoungerThanAbandonAfterHours()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+            var torrent = CreateIncomplete("hash1", ageHours: 2);
+            SetupClient(torrent);
+
+            // Act
+            await sut.AbandonDownloadsAsync([torrent], [CreateRule()]);
+
+            // Assert
+            await _fixture.ClientWrapper.DidNotReceive().DeleteAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<bool>());
+        }
+
+        [Fact]
+        public async Task KeepsTorrent_WhenAddedTimeIsUnknown()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+            var torrent = CreateIncomplete("hash1", hasAddedOn: false);
+            SetupClient(torrent);
+
+            // Act
+            await sut.AbandonDownloadsAsync([torrent], [CreateRule()]);
+
+            // Assert
+            await _fixture.ClientWrapper.DidNotReceive().DeleteAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<bool>());
+        }
+
+        [Fact]
+        public async Task KeepsTorrent_WhenMatchedRuleHasAbandonDisabled()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+            var torrent = CreateIncomplete("hash1");
+            SetupClient(torrent);
+
+            // Act
+            await sut.AbandonDownloadsAsync([torrent], [CreateRule(abandonBelow: -1)]);
+
+            // Assert
+            await _fixture.ClientWrapper.DidNotReceive().DeleteAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<bool>());
+        }
+
+        [Fact]
+        public async Task KeepsTorrent_WhenHigherPriorityRuleWithoutAbandonShadowsIt()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+            var torrent = CreateIncomplete("hash1");
+            SetupClient(torrent);
+
+            var shadowing = CreateRule(abandonBelow: -1) with { Name = "Shadow", Priority = 0 };
+            var abandoning = CreateRule() with { Priority = 1 };
+
+            // Act
+            await sut.AbandonDownloadsAsync([torrent], [abandoning, shadowing]);
+
+            // Assert
+            await _fixture.ClientWrapper.DidNotReceive().DeleteAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<bool>());
+        }
+
+        [Fact]
+        public async Task KeepsTorrent_WhenTrackerDoesNotMatch()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+            var torrent = CreateIncomplete("hash1", tracker: "https://tracker.other.org/announce");
+            SetupClient(torrent);
+
+            // Act
+            await sut.AbandonDownloadsAsync([torrent], [CreateRule()]);
+
+            // Assert
+            await _fixture.ClientWrapper.DidNotReceive().DeleteAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<bool>());
+        }
+
+        [Fact]
+        public async Task KeepsFiles_WhenAnotherTorrentSharesTheContentPath()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+            var torrent = CreateIncomplete("tl-hash", name: "Movie.2024.1080p");
+            var crossSeed = CreateIncomplete("other-hash", progress: 1, name: "Movie.2024.1080p");
+            SetupClient(torrent, crossSeed);
+
+            // Act
+            await sut.AbandonDownloadsAsync([torrent], [CreateRule()]);
+
+            // Assert
+            await _fixture.ClientWrapper.Received(1)
+                .DeleteAsync(Arg.Is<IEnumerable<string>>(h => h.Single() == "tl-hash"), false);
+        }
+
+        [Theory]
+        [InlineData("/downloads", "Season.Pack", "/downloads/Season.Pack", "Episode.01")] // other is nested inside
+        [InlineData("/downloads/Season.Pack", "Episode.01", "/downloads", "Season.Pack")] // other contains it
+        [InlineData("/downloads", "Movie.2024", "/Downloads", "movie.2024")]             // differs only in case
+        [InlineData("/downloads", "Movie.2024", "", "Other")]                            // other path unknown
+        public async Task KeepsFiles_WhenPathsOverlapOrAreUnknown(string savePath, string name, string otherSavePath, string otherName)
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+            var torrent = CreateIncomplete("tl-hash", savePath: savePath, name: name);
+            var other = CreateIncomplete("other-hash", progress: 1, savePath: otherSavePath, name: otherName);
+            SetupClient(torrent, other);
+
+            // Act
+            await sut.AbandonDownloadsAsync([torrent], [CreateRule()]);
+
+            // Assert
+            await _fixture.ClientWrapper.Received(1)
+                .DeleteAsync(Arg.Is<IEnumerable<string>>(h => h.Single() == "tl-hash"), false);
+        }
+
+        [Fact]
+        public async Task DeletesFiles_WhenOtherTorrentOnlySharesAPrefix()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+            var torrent = CreateIncomplete("tl-hash", name: "Movie");
+            var other = CreateIncomplete("other-hash", progress: 1, name: "Movie.2024");
+            SetupClient(torrent, other);
+
+            // Act
+            await sut.AbandonDownloadsAsync([torrent], [CreateRule()]);
+
+            // Assert
+            await _fixture.ClientWrapper.Received(1)
+                .DeleteAsync(Arg.Is<IEnumerable<string>>(h => h.Single() == "tl-hash"), true);
+        }
+
+        [Fact]
+        public async Task KeepsFiles_WhenSharedPathCheckFails()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+            var torrent = CreateIncomplete("hash1");
+            SetupClient(torrent);
+            _fixture.ClientWrapper
+                .GetTorrentListAsync(Arg.Any<TorrentListQuery>())
+                .ThrowsAsync(new Exception("client hiccup"));
+
+            // Act
+            await sut.AbandonDownloadsAsync([torrent], [CreateRule()]);
+
+            // Assert
+            await _fixture.ClientWrapper.Received(1)
+                .DeleteAsync(Arg.Is<IEnumerable<string>>(h => h.Single() == "hash1"), false);
+        }
+
+        [Fact]
+        public async Task KeepsTorrent_WhenAddedTimeIsInTheFuture()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+            var torrent = CreateIncomplete("hash1", ageHours: -5);
+            SetupClient(torrent);
+
+            // Act
+            await sut.AbandonDownloadsAsync([torrent], [CreateRule(abandonAfterHours: 1)]);
+
+            // Assert
+            await _fixture.ClientWrapper.DidNotReceive().DeleteAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<bool>());
+        }
+
+        [Fact]
+        public async Task KeepsTorrent_WhenRuleActionIsUnknown()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+            var torrent = CreateIncomplete("hash1");
+            SetupClient(torrent);
+
+            // Act
+            await sut.AbandonDownloadsAsync([torrent], [CreateRule(action: SeedingRuleAction.Unknown)]);
+
+            // Assert
+            await _fixture.ClientWrapper.DidNotReceive().DeleteAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<bool>());
+            await _fixture.ClientWrapper.DidNotReceive().PauseAsync(Arg.Any<IEnumerable<string>>());
+        }
+
+        [Fact]
+        public async Task KeepsFiles_WhenRuleDoesNotDeleteSourceFiles()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+            var torrent = CreateIncomplete("hash1");
+            SetupClient(torrent);
+
+            // Act
+            await sut.AbandonDownloadsAsync([torrent], [CreateRule(deleteSourceFiles: false)]);
+
+            // Assert
+            await _fixture.ClientWrapper.Received(1)
+                .DeleteAsync(Arg.Is<IEnumerable<string>>(h => h.Single() == "hash1"), false);
+            await _fixture.ClientWrapper.DidNotReceive().GetTorrentListAsync(Arg.Any<TorrentListQuery>());
+        }
+
+        [Fact]
+        public async Task StopsTorrent_WhenRuleActionIsStop()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+            var torrent = CreateIncomplete("hash1");
+            SetupClient(torrent);
+
+            // Act
+            await sut.AbandonDownloadsAsync([torrent], [CreateRule(action: SeedingRuleAction.Stop)]);
+
+            // Assert
+            await _fixture.ClientWrapper.Received(1).PauseAsync(Arg.Is<IEnumerable<string>>(h => h.Single() == "hash1"));
+            await _fixture.ClientWrapper.DidNotReceive().DeleteAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<bool>());
+            await _fixture.EventPublisher.Received(1)
+                .PublishDownloadStopped(Arg.Any<double>(), TimeSpan.Zero, "tl", CleanReason.AbandonedBelowThreshold);
+        }
+
+        [Fact]
+        public async Task DoesNotDelete_WhenDryRunInterceptsTheAction()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+            var torrent = CreateIncomplete("hash1");
+            SetupClient(torrent);
+            _fixture.DryRunInterceptor
+                .InterceptAsync(Arg.Any<Func<Task>>(), Arg.Any<string?>())
+                .ReturnsForAnyArgs(Task.CompletedTask);
+
+            // Act
+            await sut.AbandonDownloadsAsync([torrent], [CreateRule()]);
+
+            // Assert
+            await _fixture.ClientWrapper.DidNotReceive().DeleteAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<bool>());
         }
     }
 

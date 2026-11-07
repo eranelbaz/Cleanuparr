@@ -16,6 +16,18 @@ public interface ISeedingCleanupCapable : IDownloadService
     Task<List<ITorrentItemWrapper>> GetSeedingDownloads();
 
     /// <summary>
+    /// Fetches incomplete downloads whose progress can be trusted, for abandoning.
+    /// Skips downloads that are checking, moving, allocating, fetching metadata or errored.
+    /// Never returns a download that <see cref="GetSeedingDownloads"/> returns in the same snapshot.
+    /// </summary>
+    /// <remarks>
+    /// Client progress counts the selected files only; use <see cref="ITorrentItemWrapper.HnrDownloadedPercentage"/> for hit-and-run decisions.
+    /// Downloads with tracker errors are included. A download can finish between calls, so re-check completion before acting.
+    /// </remarks>
+    /// <returns>A list of incomplete downloads, or an empty list when the client does not support abandoning.</returns>
+    Task<List<ITorrentItemWrapper>> GetIncompleteDownloads();
+
+    /// <summary>
     /// Filters downloads that should be cleaned.
     /// </summary>
     /// <param name="downloads">The downloads to filter.</param>
@@ -29,6 +41,14 @@ public interface ISeedingCleanupCapable : IDownloadService
     /// <param name="downloads">The downloads to clean.</param>
     /// <param name="seedingRules">The seeding rules.</param>
     Task CleanDownloadsAsync(List<ITorrentItemWrapper>? downloads, List<ISeedingRule> seedingRules);
+
+    /// <summary>
+    /// Abandons incomplete downloads that a seeding rule with abandon enabled matches,
+    /// once they are old enough and still below the rule's downloaded percentage.
+    /// </summary>
+    /// <param name="downloads">Incomplete downloads from <see cref="GetIncompleteDownloads"/>.</param>
+    /// <param name="seedingRules">The seeding rules.</param>
+    Task AbandonDownloadsAsync(List<ITorrentItemWrapper>? downloads, List<ISeedingRule> seedingRules);
 
     /// <summary>
     /// Stops a download, leaving it in the client.

@@ -1,3 +1,4 @@
+using Cleanuparr.Domain.Entities;
 using Cleanuparr.Infrastructure.Features.DownloadClient.Transmission;
 using Cleanuparr.Persistence.Models.Configuration.DownloadCleaner;
 using NSubstitute;
@@ -193,6 +194,112 @@ public class TransmissionServiceDCTests : IClassFixture<TransmissionServiceFixtu
             // Assert
             result.ShouldHaveSingleItem();
             result[0].DownloadId.ShouldBe("hash1");
+        }
+    }
+
+    public class GetIncompleteDownloads_Tests : TransmissionServiceDCTests
+    {
+        public GetIncompleteDownloads_Tests(TransmissionServiceFixture fixture) : base(fixture)
+        {
+        }
+
+        [Fact]
+        public async Task ReturnsOnlyIncompleteTorrentsWithTrustedProgress()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+
+            var torrents = new TransmissionTorrents
+            {
+                Torrents = new[]
+                {
+                    new TorrentInfo { HashString = "stopped", Name = "1", Status = 0, PercentDone = 0.05 },
+                    new TorrentInfo { HashString = "queued", Name = "2", Status = 3, PercentDone = 0.05 },
+                    new TorrentInfo { HashString = "downloading", Name = "3", Status = 4, PercentDone = 0.05 },
+                    new TorrentInfo { HashString = "check-wait", Name = "4", Status = 1, PercentDone = 0.05 },
+                    new TorrentInfo { HashString = "checking", Name = "5", Status = 2, PercentDone = 0.05 },
+                    new TorrentInfo { HashString = "seed-wait", Name = "6", Status = 5, PercentDone = 1 },
+                    new TorrentInfo { HashString = "seeding", Name = "7", Status = 6, PercentDone = 1 },
+                    new TorrentInfo { HashString = "stopped-complete", Name = "8", Status = 0, PercentDone = 1 },
+                    new TorrentInfo { HashString = "stopped-finished", Name = "9", Status = 0, PercentDone = 0.5, IsFinished = true },
+                    new TorrentInfo { HashString = "local-error", Name = "10", Status = 4, PercentDone = 0.05, Error = 3 },
+                    new TorrentInfo { HashString = "no-percent-field", Name = "11", Status = 4, PercentDone = null },
+                    new TorrentInfo { HashString = "", Name = "12", Status = 4, PercentDone = 0.05 }
+                }
+            };
+
+            _fixture.ClientWrapper
+                .TorrentGetAsync(Arg.Any<string[]>(), Arg.Any<string?>())
+                .Returns(torrents);
+
+            // Act
+            List<ITorrentItemWrapper> result = await sut.GetIncompleteDownloads();
+
+            // Assert
+            result.Select(x => x.DownloadId).ShouldBe(["stopped", "queued", "downloading"]);
+        }
+
+        [Fact]
+        public async Task RequestsPercentDoneAndSizeWhenDone()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+
+            _fixture.ClientWrapper
+                .TorrentGetAsync(Arg.Any<string[]>(), Arg.Any<string?>())
+                .Returns(new TransmissionTorrents { Torrents = [] });
+
+            // Act
+            await sut.GetIncompleteDownloads();
+
+            // Assert
+            await _fixture.ClientWrapper.Received(1).TorrentGetAsync(
+                Arg.Is<string[]>(fields => fields.Contains(TorrentFields.PERCENT_DONE) && fields.Contains(TorrentFields.SIZE_WHEN_DONE)),
+                Arg.Any<string?>());
+        }
+
+        [Fact]
+        public async Task NeverOverlapsWithSeedingDownloads()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+
+            var torrents = Enumerable.Range(0, 7)
+                .SelectMany(status => new[]
+                {
+                    new TorrentInfo { HashString = $"{status}-partial", Name = "p", Status = status, PercentDone = 0.05 },
+                    new TorrentInfo { HashString = $"{status}-complete", Name = "c", Status = status, PercentDone = 1, IsFinished = true }
+                })
+                .ToArray();
+
+            _fixture.ClientWrapper
+                .TorrentGetAsync(Arg.Any<string[]>(), Arg.Any<string?>())
+                .Returns(new TransmissionTorrents { Torrents = torrents });
+
+            // Act
+            List<ITorrentItemWrapper> seeding = await sut.GetSeedingDownloads();
+            List<ITorrentItemWrapper> incomplete = await sut.GetIncompleteDownloads();
+
+            // Assert
+            incomplete.ShouldNotBeEmpty();
+            seeding.Select(x => x.DownloadId).Intersect(incomplete.Select(x => x.DownloadId)).ShouldBeEmpty();
+        }
+
+        [Fact]
+        public async Task ReturnsEmptyList_WhenNull()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+
+            _fixture.ClientWrapper
+                .TorrentGetAsync(Arg.Any<string[]>(), Arg.Any<string?>())
+                .Returns((TransmissionTorrents?)null);
+
+            // Act
+            List<ITorrentItemWrapper> result = await sut.GetIncompleteDownloads();
+
+            // Assert
+            result.ShouldBeEmpty();
         }
     }
 

@@ -49,7 +49,7 @@ test.describe.serial('DownloadCleaner — seeding rules CRUD', () => {
     })).json();
 
     const ruleKeys = [
-      'action', 'categories', 'deleteSourceFiles', 'id', 'maxInactiveDays', 'maxRatio',
+      'abandonAfterHours', 'abandonBelowPercentage', 'action', 'categories', 'deleteSourceFiles', 'id', 'maxInactiveDays', 'maxRatio',
       'maxSeedTime', 'minSeedTime', 'minSeeders', 'name', 'priority', 'privacyType',
       'tagsAll', 'tagsAny', 'trackerPatterns',
     ];

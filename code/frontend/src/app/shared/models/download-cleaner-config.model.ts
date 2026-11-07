@@ -14,6 +14,8 @@ export interface SeedingRule {
   maxSeedTime: number;
   minSeeders?: number;
   maxInactiveDays?: number;
+  abandonBelowPercentage?: number | null;
+  abandonAfterHours?: number | null;
   action: SeedingRuleAction;
   deleteSourceFiles: boolean;
 }

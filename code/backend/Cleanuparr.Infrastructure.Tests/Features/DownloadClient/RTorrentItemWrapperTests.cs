@@ -12,6 +12,19 @@ public class RTorrentItemWrapperTests
     public class PropertyMapping_Tests
     {
         [Fact]
+        public void HnrDownloadedPercentage_IsAlways100()
+        {
+            // Arrange
+            var torrent = new RTorrentTorrent { Hash = "ABC", Name = "Test", SizeBytes = 1000, CompletedBytes = 10 };
+
+            // Act
+            var wrapper = new RTorrentItemWrapper(torrent, null, TimeProvider.System);
+
+            // Assert
+            wrapper.HnrDownloadedPercentage.ShouldBe(100);
+        }
+
+        [Fact]
         public void MapsHash()
         {
             // Arrange

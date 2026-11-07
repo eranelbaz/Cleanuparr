@@ -40,6 +40,10 @@ public sealed class TransmissionItemWrapper : ITorrentItemWrapper
     
     public long DownloadedBytes => Info.DownloadedEver ?? 0;
 
+    /// <inheritdoc/>
+    /// <remarks>Uses <c>percentDone</c> and <c>sizeWhenDone</c>, which cover the selected files only.</remarks>
+    public double HnrDownloadedPercentage => HnrPercentage.From(Info.PercentDone, Info.DownloadedEver, Info.SizeWhenDone);
+
     public long DownloadSpeed => Info.RateDownload ?? 0;
     
     public double Ratio => Info.uploadRatio ?? 0.0;

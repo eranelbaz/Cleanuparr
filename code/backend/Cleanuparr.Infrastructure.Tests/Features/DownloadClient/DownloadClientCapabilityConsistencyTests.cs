@@ -194,6 +194,17 @@ public class DownloadClientCapabilityConsistencyTests : IDisposable
             $"SeedersFiltering mismatch for {typeName}");
     }
 
+    [Theory]
+    [MemberData(nameof(TorrentClientTypeNames))]
+    public void SupportsCapability_Abandon_MatchesSeedingRuleType(DownloadClientTypeName typeName)
+    {
+        bool ruleImplementsAbandonable = SeedingRuleTypes[typeName].IsAssignableTo(typeof(IAbandonable));
+
+        typeName.SupportsCapability(DownloadClientCapability.Abandon).ShouldBe(
+            ruleImplementsAbandonable,
+            $"Abandon mismatch for {typeName}");
+    }
+
     [Fact]
     public void EveryClientType_HasAMapEntry()
     {

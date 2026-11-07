@@ -4,7 +4,7 @@ using Cleanuparr.Domain.Enums;
 
 namespace Cleanuparr.Persistence.Models.Configuration.DownloadCleaner;
 
-public sealed record QBitSeedingRule : ISeedingRule, ITagFilterable, ISeedersFilterable, IInactivityFilterable
+public sealed record QBitSeedingRule : ISeedingRule, ITagFilterable, ISeedersFilterable, IInactivityFilterable, IAbandonable
 {
     [Key]
     [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
@@ -52,6 +52,12 @@ public sealed record QBitSeedingRule : ISeedingRule, ITagFilterable, ISeedersFil
     /// <inheritdoc/>
     public double MaxInactiveDays { get; set; } = -1;
 
+    /// <inheritdoc/>
+    public double AbandonBelowPercentage { get; set; } = -1;
+
+    /// <inheritdoc/>
+    public double AbandonAfterHours { get; set; }
+
     /// <summary>
     /// Whether to delete the source files when cleaning the download.
     /// </summary>
@@ -65,6 +71,7 @@ public sealed record QBitSeedingRule : ISeedingRule, ITagFilterable, ISeedersFil
     public void Validate()
     {
         ((ISeedingRule)this).ValidateRule();
+        ((IAbandonable)this).ValidateRule();
         ((ISeedersFilterable)this).ValidateRule();
         ((IInactivityFilterable)this).ValidateRule();
     }

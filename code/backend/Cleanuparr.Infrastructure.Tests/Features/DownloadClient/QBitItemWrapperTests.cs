@@ -969,4 +969,35 @@ public class QBitItemWrapperTests
         // Assert
         result.ShouldBe(TrackerHealth.Inconclusive);
     }
+
+    [Theory]
+    [InlineData(0.05, 10L, 1000L, 5.0)] // progress wins
+    [InlineData(0.01, 80L, 1000L, 8.0)] // all-time downloaded wins
+    [InlineData(0.5, 5000L, 1000L, 100.0)] // wasted bytes are clamped
+    public void HnrDownloadedPercentage_ReturnsHigherOfProgressAndDownloaded(double progress, long downloaded, long size, double expected)
+    {
+        // Arrange
+        TorrentInfo torrentInfo = new() { Progress = progress, Downloaded = downloaded, Size = size };
+        QBitItemWrapper wrapper = new(torrentInfo, [], false);
+
+        // Act
+        double result = wrapper.HnrDownloadedPercentage;
+
+        // Assert
+        result.ShouldBe(expected, 0.0001);
+    }
+
+    [Fact]
+    public void HnrDownloadedPercentage_WhenDownloadedMissing_Returns100()
+    {
+        // Arrange
+        TorrentInfo torrentInfo = new() { Progress = 0.01, Downloaded = null, Size = 1000 };
+        QBitItemWrapper wrapper = new(torrentInfo, [], false);
+
+        // Act
+        double result = wrapper.HnrDownloadedPercentage;
+
+        // Assert
+        result.ShouldBe(100);
+    }
 }

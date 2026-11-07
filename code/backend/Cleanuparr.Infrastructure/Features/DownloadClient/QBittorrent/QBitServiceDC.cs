@@ -31,14 +31,49 @@ public partial class QBitService
                 continue;
             }
 
-            bool isPrivate = properties.AdditionalData.TryGetValue("is_private", out JToken? dictValue) &&
-                           bool.TryParse(dictValue?.ToString(), out bool boolValue) && boolValue;
-
-            result.Add(new QBitItemWrapper(torrent, trackers, isPrivate));
+            result.Add(new QBitItemWrapper(torrent, trackers, IsPrivate(properties)));
         }
 
         return result;
     }
+
+    /// <inheritdoc/>
+    public override async Task<List<ITorrentItemWrapper>> GetIncompleteDownloads()
+    {
+        IReadOnlyList<TorrentInfo>? torrentList = await _client.GetTorrentListAsync(new TorrentListQuery { Filter = TorrentListFilter.All });
+        if (torrentList is null)
+        {
+            return [];
+        }
+
+        var result = new List<ITorrentItemWrapper>();
+        foreach (TorrentInfo torrent in torrentList.Where(x => !string.IsNullOrEmpty(x.Hash) && x.Progress < 1 && HasTrustedProgress(x.State)))
+        {
+            IReadOnlyList<TorrentTracker>? trackers = await GetTrackersAsync(torrent.Hash);
+            TorrentProperties? properties = await _client.GetTorrentPropertiesAsync(torrent.Hash);
+
+            if (trackers is null || properties is null)
+            {
+                _logger.LogDebug("skip | torrent no longer exists in the download client | {Name}", torrent.Name);
+                continue;
+            }
+
+            result.Add(new QBitItemWrapper(torrent, trackers, IsPrivate(properties)));
+        }
+
+        return result;
+    }
+
+    private static bool IsPrivate(TorrentProperties properties) =>
+        properties.AdditionalData.TryGetValue("is_private", out JToken? dictValue) &&
+        bool.TryParse(dictValue?.ToString(), out bool boolValue) && boolValue;
+
+    private static bool HasTrustedProgress(TorrentState state) =>
+        state is TorrentState.Downloading
+            or TorrentState.ForcedDownload
+            or TorrentState.StalledDownload
+            or TorrentState.PausedDownload
+            or TorrentState.QueuedDownload;
 
     /// <inheritdoc/>
     public override async Task<List<IDownloadItem>> GetAllDownloadsLite()

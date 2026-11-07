@@ -49,6 +49,25 @@
         hint="Minimum number of seeders required before removing (0 means disabled; unavailable counts keep the download)"
         helpKey="download-cleaner:minSeeders" />
     }
+    @if (isAbandonCapableClient()) {
+      <div class="form-grid full-width">
+        <app-toggle class="full-width" label="Abandon Incomplete Downloads" [formField]="form.abandonEnabled" featureId="abandon-incomplete"
+          hint="Also act on incomplete downloads this rule matches: once they are old enough and still below the downloaded percentage, apply the action below. Meant for private trackers that only count a hit-and-run past a downloaded share. Downloads an *arr still tracks are skipped; paused downloads count too."
+          helpKey="download-cleaner:abandonIncomplete" />
+        @if (model().abandonEnabled) {
+          <app-number-input label="Abandon Below" [formField]="form.abandonBelowPercentage" [step]="1" suffix="%"
+            [error]="abandonPercentageError()"
+            hint="Abandon only while less than this share of the download is downloaded (e.g. 10 for TorrentLeech)"
+            helpKey="download-cleaner:abandonBelowPercentage" />
+          <app-number-input label="Abandon After" [formField]="form.abandonAfterHours" [step]="1" suffix="hours"
+            [error]="abandonHoursError()"
+            hint="How long after the download was added before it can be abandoned"
+            helpKey="download-cleaner:abandonAfterHours" />
+        }
+      </div>
+    } @else if (clientId()) {
+      <div class="full-width abandon-unsupported">Abandoning incomplete downloads is not available for this download client.</div>
+    }
     @if (disabledError()) {
       <div class="category-error full-width">{{ disabledError() }}</div>
     }

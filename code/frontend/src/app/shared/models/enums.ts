@@ -27,6 +27,7 @@ export enum DownloadClientCapability {
   TagFiltering = 'TagFiltering',
   SeedersFiltering = 'SeedersFiltering',
   DeadTorrent = 'DeadTorrent',
+  Abandon = 'Abandon',
 }
 
 export enum NotificationProviderType {

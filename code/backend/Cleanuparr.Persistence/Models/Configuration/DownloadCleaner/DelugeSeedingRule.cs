@@ -4,7 +4,7 @@ using Cleanuparr.Domain.Enums;
 
 namespace Cleanuparr.Persistence.Models.Configuration.DownloadCleaner;
 
-public sealed record DelugeSeedingRule : ISeedingRule, ISeedersFilterable
+public sealed record DelugeSeedingRule : ISeedingRule, ISeedersFilterable, IAbandonable
 {
     [Key]
     [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
@@ -45,6 +45,12 @@ public sealed record DelugeSeedingRule : ISeedingRule, ISeedersFilterable
     /// <inheritdoc/>
     public int MinSeeders { get; set; }
 
+    /// <inheritdoc/>
+    public double AbandonBelowPercentage { get; set; } = -1;
+
+    /// <inheritdoc/>
+    public double AbandonAfterHours { get; set; }
+
     /// <summary>
     /// Whether to delete the source files when cleaning the download.
     /// </summary>
@@ -58,6 +64,7 @@ public sealed record DelugeSeedingRule : ISeedingRule, ISeedersFilterable
     public void Validate()
     {
         ((ISeedingRule)this).ValidateRule();
+        ((IAbandonable)this).ValidateRule();
         ((ISeedersFilterable)this).ValidateRule();
     }
 }

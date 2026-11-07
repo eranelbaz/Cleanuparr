@@ -59,9 +59,13 @@ public interface ISeedingRule : IConfig
             throw new CustomValidationException("At least one category must be specified");
         }
 
-        if (MaxRatio < 0 && MaxSeedTime < 0)
+        bool abandonEnabled = this is IAbandonable { IsAbandonEnabled: true };
+
+        if (MaxRatio < 0 && MaxSeedTime < 0 && !abandonEnabled)
         {
-            throw new CustomValidationException("Either max ratio or max seed time must be set to a non-negative value");
+            throw new CustomValidationException(this is IAbandonable
+                ? "Either max ratio, max seed time or abandon below percentage must be set"
+                : "Either max ratio or max seed time must be set to a non-negative value");
         }
 
         if (MaxRatio is < 0 and not -1)

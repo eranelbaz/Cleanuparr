@@ -139,6 +139,12 @@ public class SeedingRulesController : ControllerBase
                 inactivityFilterable.MaxInactiveDays = ruleDto.MaxInactiveDays;
             }
 
+            if (existingRule is IAbandonable abandonable)
+            {
+                abandonable.AbandonBelowPercentage = ruleDto.AbandonBelowPercentage;
+                abandonable.AbandonAfterHours = ruleDto.AbandonAfterHours;
+            }
+
             existingRule.Validate();
 
             await _dataContext.SaveChangesAsync();
@@ -260,6 +266,8 @@ public class SeedingRulesController : ControllerBase
                 MaxInactiveDays = dto.MaxInactiveDays,
                 DeleteSourceFiles = dto.DeleteSourceFiles,
                 Action = dto.Action,
+                AbandonBelowPercentage = dto.AbandonBelowPercentage,
+                AbandonAfterHours = dto.AbandonAfterHours,
             },
             DownloadClientTypeName.Deluge => new DelugeSeedingRule
             {
@@ -275,6 +283,8 @@ public class SeedingRulesController : ControllerBase
                 MinSeeders = dto.MinSeeders,
                 DeleteSourceFiles = dto.DeleteSourceFiles,
                 Action = dto.Action,
+                AbandonBelowPercentage = dto.AbandonBelowPercentage,
+                AbandonAfterHours = dto.AbandonAfterHours,
             },
             DownloadClientTypeName.Transmission => new TransmissionSeedingRule
             {
@@ -292,6 +302,8 @@ public class SeedingRulesController : ControllerBase
                 MinSeeders = dto.MinSeeders,
                 DeleteSourceFiles = dto.DeleteSourceFiles,
                 Action = dto.Action,
+                AbandonBelowPercentage = dto.AbandonBelowPercentage,
+                AbandonAfterHours = dto.AbandonAfterHours,
             },
             DownloadClientTypeName.uTorrent => new UTorrentSeedingRule
             {
@@ -307,6 +319,8 @@ public class SeedingRulesController : ControllerBase
                 MinSeeders = dto.MinSeeders,
                 DeleteSourceFiles = dto.DeleteSourceFiles,
                 Action = dto.Action,
+                AbandonBelowPercentage = dto.AbandonBelowPercentage,
+                AbandonAfterHours = dto.AbandonAfterHours,
             },
             DownloadClientTypeName.rTorrent => new RTorrentSeedingRule
             {

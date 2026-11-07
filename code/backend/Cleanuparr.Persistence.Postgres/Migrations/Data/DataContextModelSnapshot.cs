@@ -169,6 +169,14 @@ namespace Cleanuparr.Persistence.Postgres.Migrations.Data
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<double>("AbandonAfterHours")
+                        .HasColumnType("double precision")
+                        .HasColumnName("abandon_after_hours");
+
+                    b.Property<double>("AbandonBelowPercentage")
+                        .HasColumnType("double precision")
+                        .HasColumnName("abandon_below_percentage");
+
                     b.Property<string>("Action")
                         .IsRequired()
                         .HasColumnType("text")
@@ -316,6 +324,14 @@ namespace Cleanuparr.Persistence.Postgres.Migrations.Data
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<double>("AbandonAfterHours")
+                        .HasColumnType("double precision")
+                        .HasColumnName("abandon_after_hours");
+
+                    b.Property<double>("AbandonBelowPercentage")
+                        .HasColumnType("double precision")
+                        .HasColumnName("abandon_below_percentage");
 
                     b.Property<string>("Action")
                         .IsRequired()
@@ -465,6 +481,14 @@ namespace Cleanuparr.Persistence.Postgres.Migrations.Data
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<double>("AbandonAfterHours")
+                        .HasColumnType("double precision")
+                        .HasColumnName("abandon_after_hours");
+
+                    b.Property<double>("AbandonBelowPercentage")
+                        .HasColumnType("double precision")
+                        .HasColumnName("abandon_below_percentage");
+
                     b.Property<string>("Action")
                         .IsRequired()
                         .HasColumnType("text")
@@ -543,6 +567,14 @@ namespace Cleanuparr.Persistence.Postgres.Migrations.Data
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<double>("AbandonAfterHours")
+                        .HasColumnType("double precision")
+                        .HasColumnName("abandon_after_hours");
+
+                    b.Property<double>("AbandonBelowPercentage")
+                        .HasColumnType("double precision")
+                        .HasColumnName("abandon_below_percentage");
 
                     b.Property<string>("Action")
                         .IsRequired()

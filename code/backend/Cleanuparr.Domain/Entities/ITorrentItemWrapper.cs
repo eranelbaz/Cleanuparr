@@ -38,6 +38,13 @@ public interface ITorrentItemWrapper : IDownloadItem
     /// </summary>
     DateTimeOffset? AddedOn { get; }
 
+    /// <summary>
+    /// Percentage (0-100) of the wanted data a tracker could count as downloaded, used for hit-and-run safe abandoning.
+    /// Takes the higher of verified progress and all-time downloaded bytes, so it never reads lower than reality.
+    /// Returns 100 when the client lacks the data to tell.
+    /// </summary>
+    double HnrDownloadedPercentage { get; }
+
     long Eta { get; }
 
     long SeedingTimeSeconds { get; }

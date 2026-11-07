@@ -43,6 +43,10 @@ public sealed class UTorrentItemWrapper : ITorrentItemWrapper
     
     public long DownloadedBytes => Info.Downloaded;
 
+    /// <inheritdoc/>
+    /// <remarks>Assumes <c>SIZE</c> covers the selected files only; <c>PROGRESS</c> is a floor if it does not.</remarks>
+    public double HnrDownloadedPercentage => HnrPercentage.From(Info.ProgressPercent, Info.Downloaded, Info.Size);
+
     public long DownloadSpeed => Info.DownloadSpeed;
     
     public double Ratio => Info.Ratio;

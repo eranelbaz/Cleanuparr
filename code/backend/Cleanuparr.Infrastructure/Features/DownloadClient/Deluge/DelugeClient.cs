@@ -30,7 +30,11 @@ public sealed class DelugeClient
         "trackers",
         "download_payload_rate",
         "total_size",
-        "download_location"
+        "download_location",
+        "time_added",
+        "progress",
+        "total_wanted",
+        "all_time_download"
     ];
     
     public DelugeClient(DownloadClientConfig config, HttpClient httpClient)

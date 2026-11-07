@@ -399,4 +399,20 @@ public class UTorrentItemWrapperTests
         // Assert
         result.ShouldBeNull();
     }
+
+    [Theory]
+    [InlineData(50, 10L, 1000L, 5.0)] // progress (permille) wins
+    [InlineData(10, 80L, 1000L, 8.0)] // all-time downloaded wins
+    public void HnrDownloadedPercentage_ReturnsHigherOfProgressAndDownloaded(int progress, long downloaded, long size, double expected)
+    {
+        // Arrange
+        var torrentItem = new UTorrentItem { Progress = progress, Downloaded = downloaded, Size = size };
+        var wrapper = new UTorrentItemWrapper(torrentItem, new UTorrentProperties(), TimeProvider.System);
+
+        // Act
+        var result = wrapper.HnrDownloadedPercentage;
+
+        // Assert
+        result.ShouldBe(expected, 0.0001);
+    }
 }
