@@ -139,6 +139,100 @@ public class UTorrentServiceDCTests : IClassFixture<UTorrentServiceFixture>
         }
     }
 
+    public class GetIncompleteDownloads_Tests : UTorrentServiceDCTests
+    {
+        public GetIncompleteDownloads_Tests(UTorrentServiceFixture fixture) : base(fixture)
+        {
+        }
+
+        [Fact]
+        public async Task ReturnsOnlyIncompleteTorrentsWithTrustedProgress()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+
+            var torrents = new List<UTorrentItem>
+            {
+                new UTorrentItem { Hash = "downloading", Name = "1", Status = 137, Progress = 50 },      // Started + Checked + Loaded
+                new UTorrentItem { Hash = "stopped", Name = "2", Status = 8, Progress = 50 },            // Checked only
+                new UTorrentItem { Hash = "paused", Name = "3", Status = 41, Progress = 50 },            // Started + Checked + Paused
+                new UTorrentItem { Hash = "complete", Name = "4", Status = 9, Progress = 1000, DateCompleted = 1000 },
+                new UTorrentItem { Hash = "stopped-complete", Name = "5", Status = 8, Progress = 1000, DateCompleted = 1000 },
+                new UTorrentItem { Hash = "partial-completed", Name = "6", Status = 8, Progress = 400, DateCompleted = 1000 },
+                new UTorrentItem { Hash = "checking", Name = "7", Status = 11, Progress = 50 },          // Started + Checking + Checked
+                new UTorrentItem { Hash = "unchecked", Name = "8", Status = 1, Progress = 50 },          // Started, not Checked yet
+                new UTorrentItem { Hash = "error", Name = "9", Status = 25, Progress = 50 },             // Started + Checked + Error
+                new UTorrentItem { Hash = "", Name = "10", Status = 9, Progress = 50 }
+            };
+
+            _fixture.ClientWrapper
+                .GetTorrentsAsync()
+                .Returns(torrents);
+
+            _fixture.ClientWrapper
+                .GetTorrentPropertiesAsync(Arg.Any<string>())
+                .Returns(callInfo => new UTorrentProperties { Hash = callInfo.Arg<string>(), Pex = 1, Trackers = "" });
+
+            // Act
+            List<ITorrentItemWrapper> result = await sut.GetIncompleteDownloads();
+
+            // Assert
+            result.Select(x => x.DownloadId).ShouldBe(["downloading", "stopped", "paused"]);
+        }
+
+        [Fact]
+        public async Task SkipsTorrent_WhenPropertiesAreMissing()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+
+            _fixture.ClientWrapper
+                .GetTorrentsAsync()
+                .Returns(new List<UTorrentItem> { new UTorrentItem { Hash = "gone", Name = "Gone", Status = 9, Progress = 50 } });
+
+            _fixture.ClientWrapper
+                .GetTorrentPropertiesAsync("gone")
+                .Returns((UTorrentProperties?)null);
+
+            // Act
+            List<ITorrentItemWrapper> result = await sut.GetIncompleteDownloads();
+
+            // Assert
+            result.ShouldBeEmpty();
+        }
+
+        [Fact]
+        public async Task NeverOverlapsWithSeedingDownloads()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+
+            var torrents = Enumerable.Range(0, 256)
+                .SelectMany(status => new[]
+                {
+                    new UTorrentItem { Hash = $"{status}-partial", Name = "p", Status = status, Progress = 50 },
+                    new UTorrentItem { Hash = $"{status}-complete", Name = "c", Status = status, Progress = 1000, DateCompleted = 1000 }
+                })
+                .ToList();
+
+            _fixture.ClientWrapper
+                .GetTorrentsAsync()
+                .Returns(torrents);
+
+            _fixture.ClientWrapper
+                .GetTorrentPropertiesAsync(Arg.Any<string>())
+                .Returns(callInfo => new UTorrentProperties { Hash = callInfo.Arg<string>(), Pex = 1, Trackers = "" });
+
+            // Act
+            List<ITorrentItemWrapper> seeding = await sut.GetSeedingDownloads();
+            List<ITorrentItemWrapper> incomplete = await sut.GetIncompleteDownloads();
+
+            // Assert
+            incomplete.ShouldNotBeEmpty();
+            seeding.Select(x => x.DownloadId).Intersect(incomplete.Select(x => x.DownloadId)).ShouldBeEmpty();
+        }
+    }
+
     public class FilterDownloadsToBeCleanedAsync_Tests : UTorrentServiceDCTests
     {
         public FilterDownloadsToBeCleanedAsync_Tests(UTorrentServiceFixture fixture) : base(fixture)

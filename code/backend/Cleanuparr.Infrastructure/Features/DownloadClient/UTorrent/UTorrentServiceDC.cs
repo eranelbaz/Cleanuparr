@@ -31,6 +31,28 @@ public partial class UTorrentService
     }
 
     /// <inheritdoc/>
+    public override async Task<List<ITorrentItemWrapper>> GetIncompleteDownloads()
+    {
+        var torrents = await _client.GetTorrentsAsync();
+        var result = new List<ITorrentItemWrapper>();
+
+        foreach (UTorrentItem torrent in torrents.Where(x => !string.IsNullOrEmpty(x.Hash) && x.HasTrustedIncompleteProgress()))
+        {
+            UTorrentProperties? properties = await _client.GetTorrentPropertiesAsync(torrent.Hash);
+
+            if (properties is null)
+            {
+                _logger.LogDebug("skip | torrent no longer exists in the download client | {Name}", torrent.Name);
+                continue;
+            }
+
+            result.Add(new UTorrentItemWrapper(torrent, properties, _timeProvider));
+        }
+
+        return result;
+    }
+
+    /// <inheritdoc/>
     public override async Task<List<IDownloadItem>> GetAllDownloadsLite()
     {
         List<UTorrentItem> reported = await _client.GetTorrentsAsync();

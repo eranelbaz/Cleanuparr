@@ -183,6 +183,9 @@ public abstract class TorrentDownloadService : DownloadService, ISeedingCleanupC
     /// <inheritdoc cref="ISeedingCleanupCapable.GetSeedingDownloads"/>
     public abstract Task<List<ITorrentItemWrapper>> GetSeedingDownloads();
 
+    /// <inheritdoc cref="ISeedingCleanupCapable.GetIncompleteDownloads"/>
+    public virtual Task<List<ITorrentItemWrapper>> GetIncompleteDownloads() => Task.FromResult<List<ITorrentItemWrapper>>([]);
+
     /// <inheritdoc cref="ISeedingCleanupCapable.FilterDownloadsToBeCleanedAsync"/>
     public virtual List<ITorrentItemWrapper>? FilterDownloadsToBeCleanedAsync(List<ITorrentItemWrapper>? downloads, List<ISeedingRule> seedingRules) =>
         downloads

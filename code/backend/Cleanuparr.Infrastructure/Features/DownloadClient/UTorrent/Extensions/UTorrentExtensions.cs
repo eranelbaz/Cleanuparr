@@ -17,6 +17,19 @@ public static class UTorrentExtensions
     }
 
     /// <summary>
+    /// Checks if the torrent is incomplete and its progress can be trusted: never completed, already checked,
+    /// and not checking or errored. Paused, queued and stopped torrents qualify.
+    /// </summary>
+    public static bool HasTrustedIncompleteProgress(this UTorrentItem item)
+    {
+        return item.Progress < 1000 &&
+               item.DateCompleted <= 0 &&
+               (item.Status & UTorrentStatus.Checking) == 0 &&
+               (item.Status & UTorrentStatus.Error) == 0 &&
+               (item.Status & UTorrentStatus.Checked) != 0;
+    }
+
+    /// <summary>
     /// Checks if the torrent is currently downloading
     /// </summary>
     public static bool IsDownloading(this UTorrentItem item)

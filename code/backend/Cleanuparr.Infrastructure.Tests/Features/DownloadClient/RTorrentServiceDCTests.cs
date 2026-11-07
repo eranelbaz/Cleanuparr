@@ -144,6 +144,27 @@ public class RTorrentServiceDCTests : IClassFixture<RTorrentServiceFixture>
         }
     }
 
+    public class GetIncompleteDownloads_Tests : RTorrentServiceDCTests
+    {
+        public GetIncompleteDownloads_Tests(RTorrentServiceFixture fixture) : base(fixture)
+        {
+        }
+
+        [Fact]
+        public async Task ReturnsEmptyList_BecauseAbandoningIsNotSupported()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+
+            // Act
+            List<ITorrentItemWrapper> result = await sut.GetIncompleteDownloads();
+
+            // Assert
+            result.ShouldBeEmpty();
+            await _fixture.ClientWrapper.DidNotReceive().GetAllTorrentsAsync();
+        }
+    }
+
     public class FilterDownloadsToBeCleanedAsync_Tests : RTorrentServiceDCTests
     {
         public FilterDownloadsToBeCleanedAsync_Tests(RTorrentServiceFixture fixture) : base(fixture)

@@ -26,6 +26,22 @@ public partial class DelugeService
     }
 
     /// <inheritdoc/>
+    public override async Task<List<ITorrentItemWrapper>> GetIncompleteDownloads()
+    {
+        var downloads = await _client.GetStatusForAllTorrents();
+        if (downloads is null)
+        {
+            return [];
+        }
+
+        return downloads
+            .Where(x => !string.IsNullOrEmpty(x.Hash))
+            .Where(x => x is { Progress: < 100, IsFinished: false, State: DelugeState.Downloading or DelugeState.Paused or DelugeState.Queued })
+            .Select(ITorrentItemWrapper (x) => new DelugeItemWrapper(x))
+            .ToList();
+    }
+
+    /// <inheritdoc/>
     public override async Task<List<IDownloadItem>> GetAllDownloadsLite()
     {
         List<DownloadStatus>? downloads = await _client.GetStatusForAllTorrents();

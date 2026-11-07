@@ -343,6 +343,144 @@ public class QBitServiceDCTests : IClassFixture<QBitServiceFixture>
         };
     }
 
+    public class GetIncompleteDownloads_Tests : QBitServiceDCTests
+    {
+        public GetIncompleteDownloads_Tests(QBitServiceFixture fixture) : base(fixture)
+        {
+        }
+
+        [Fact]
+        public async Task ReturnsOnlyIncompleteTorrentsWithTrustedProgress()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+
+            var torrentList = new[]
+            {
+                new TorrentInfo { Hash = "downloading", Name = "1", State = TorrentState.Downloading, Progress = 0.05 },
+                new TorrentInfo { Hash = "stalled", Name = "2", State = TorrentState.StalledDownload, Progress = 0.05 },
+                new TorrentInfo { Hash = "paused", Name = "3", State = TorrentState.PausedDownload, Progress = 0.05 },
+                new TorrentInfo { Hash = "queued", Name = "4", State = TorrentState.QueuedDownload, Progress = 0.05 },
+                new TorrentInfo { Hash = "complete", Name = "5", State = TorrentState.Uploading, Progress = 1 },
+                new TorrentInfo { Hash = "complete-paused", Name = "6", State = TorrentState.PausedUpload, Progress = 1 },
+                new TorrentInfo { Hash = "checking", Name = "7", State = TorrentState.CheckingDownload, Progress = 0.05 },
+                new TorrentInfo { Hash = "resume-data", Name = "8", State = TorrentState.CheckingResumeData, Progress = 0.05 },
+                new TorrentInfo { Hash = "queued-check", Name = "9", State = TorrentState.QueuedForChecking, Progress = 0.05 },
+                new TorrentInfo { Hash = "moving", Name = "10", State = TorrentState.Moving, Progress = 0.05 },
+                new TorrentInfo { Hash = "allocating", Name = "11", State = TorrentState.Allocating, Progress = 0.05 },
+                new TorrentInfo { Hash = "metadata", Name = "12", State = TorrentState.FetchingMetadata, Progress = 0 },
+                new TorrentInfo { Hash = "error", Name = "13", State = TorrentState.Error, Progress = 0.05 },
+                new TorrentInfo { Hash = "missing", Name = "14", State = TorrentState.MissingFiles, Progress = 0.05 },
+                new TorrentInfo { Hash = "unknown", Name = "15", State = TorrentState.Unknown, Progress = 0.05 },
+                new TorrentInfo { Hash = "", Name = "16", State = TorrentState.Downloading, Progress = 0.05 }
+            };
+
+            _fixture.ClientWrapper
+                .GetTorrentListAsync(Arg.Is<TorrentListQuery>(q => q.Filter == TorrentListFilter.All))
+                .Returns(torrentList);
+
+            _fixture.ClientWrapper
+                .GetTorrentTrackersAsync(Arg.Any<string>())
+                .Returns(Array.Empty<TorrentTracker>());
+
+            _fixture.ClientWrapper
+                .GetTorrentPropertiesAsync(Arg.Any<string>())
+                .Returns(new TorrentProperties
+                {
+                    AdditionalData = new Dictionary<string, Newtonsoft.Json.Linq.JToken>
+                    {
+                        { "is_private", Newtonsoft.Json.Linq.JToken.FromObject(true) }
+                    }
+                });
+
+            // Act
+            List<ITorrentItemWrapper> result = await sut.GetIncompleteDownloads();
+
+            // Assert
+            result.Select(x => x.DownloadId).ShouldBe(["downloading", "stalled", "paused", "queued"]);
+            result.ShouldAllBe(x => x.IsPrivate);
+        }
+
+        [Fact]
+        public async Task NeverReturnsCompletedOrUploadSideTorrents()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+
+            TorrentState[] uploadSide =
+            [
+                TorrentState.Uploading, TorrentState.ForcedUpload, TorrentState.StalledUpload,
+                TorrentState.PausedUpload, TorrentState.QueuedUpload, TorrentState.CheckingUpload
+            ];
+
+            var torrentList = Enum.GetValues<TorrentState>()
+                .SelectMany(state => new[]
+                {
+                    new TorrentInfo { Hash = $"{state}-partial", Name = "p", State = state, Progress = 0.05 },
+                    new TorrentInfo { Hash = $"{state}-complete", Name = "c", State = state, Progress = 1 }
+                })
+                .ToArray();
+
+            _fixture.ClientWrapper
+                .GetTorrentListAsync(Arg.Any<TorrentListQuery>())
+                .Returns(torrentList);
+
+            _fixture.ClientWrapper
+                .GetTorrentTrackersAsync(Arg.Any<string>())
+                .Returns(Array.Empty<TorrentTracker>());
+
+            _fixture.ClientWrapper
+                .GetTorrentPropertiesAsync(Arg.Any<string>())
+                .Returns(new TorrentProperties { AdditionalData = new Dictionary<string, Newtonsoft.Json.Linq.JToken>() });
+
+            // Act
+            List<ITorrentItemWrapper> result = await sut.GetIncompleteDownloads();
+
+            // Assert
+            result.ShouldNotBeEmpty();
+            result.ShouldAllBe(x => x.CompletionPercentage < 100);
+            result.Cast<QBitItemWrapper>().ShouldAllBe(x => !uploadSide.Contains(x.Info.State));
+        }
+
+        [Fact]
+        public async Task SkipsTorrent_WhenItNoLongerExists()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+
+            _fixture.ClientWrapper
+                .GetTorrentListAsync(Arg.Any<TorrentListQuery>())
+                .Returns(new[] { new TorrentInfo { Hash = "gone", Name = "Gone", State = TorrentState.Downloading, Progress = 0.05 } });
+
+            _fixture.ClientWrapper
+                .GetTorrentTrackersAsync("gone")
+                .Returns((IReadOnlyList<TorrentTracker>?)null);
+
+            // Act
+            List<ITorrentItemWrapper> result = await sut.GetIncompleteDownloads();
+
+            // Assert
+            result.ShouldBeEmpty();
+        }
+
+        [Fact]
+        public async Task ReturnsEmptyList_WhenNull()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+
+            _fixture.ClientWrapper
+                .GetTorrentListAsync(Arg.Any<TorrentListQuery>())
+                .Returns((IReadOnlyList<TorrentInfo>?)null);
+
+            // Act
+            List<ITorrentItemWrapper> result = await sut.GetIncompleteDownloads();
+
+            // Assert
+            result.ShouldBeEmpty();
+        }
+    }
+
     public class FilterDownloadsToBeCleanedAsync_Tests : QBitServiceDCTests
     {
         public FilterDownloadsToBeCleanedAsync_Tests(QBitServiceFixture fixture) : base(fixture)

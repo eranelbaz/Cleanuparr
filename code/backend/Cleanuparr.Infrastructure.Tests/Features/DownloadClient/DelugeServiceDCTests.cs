@@ -206,6 +206,92 @@ public class DelugeServiceDCTests : IClassFixture<DelugeServiceFixture>
         }
     }
 
+    public class GetIncompleteDownloads_Tests : DelugeServiceDCTests
+    {
+        public GetIncompleteDownloads_Tests(DelugeServiceFixture fixture) : base(fixture)
+        {
+        }
+
+        private static DownloadStatus Status(string hash, DelugeState state, double? progress, bool isFinished = false) =>
+            new() { Hash = hash, Name = hash, State = state, Progress = progress, IsFinished = isFinished, Trackers = new List<Tracker>(), DownloadLocation = "/downloads" };
+
+        [Fact]
+        public async Task ReturnsOnlyIncompleteTorrentsWithTrustedProgress()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+
+            _fixture.ClientWrapper
+                .GetStatusForAllTorrents()
+                .Returns(new List<DownloadStatus>
+                {
+                    Status("downloading", DelugeState.Downloading, 5),
+                    Status("paused", DelugeState.Paused, 5),
+                    Status("queued", DelugeState.Queued, 5),
+                    Status("seeding", DelugeState.Seeding, 100, isFinished: true),
+                    Status("finished-paused", DelugeState.Paused, 100, isFinished: true),
+                    Status("finished-partial", DelugeState.Paused, 40, isFinished: true),
+                    Status("checking", DelugeState.Checking, 5),
+                    Status("allocating", DelugeState.Allocating, 5),
+                    Status("moving", DelugeState.Moving, 5),
+                    Status("error", DelugeState.Error, 5),
+                    Status("unknown", DelugeState.Unknown, 5),
+                    Status("no-progress-field", DelugeState.Downloading, null),
+                    Status("", DelugeState.Downloading, 5)
+                });
+
+            // Act
+            List<ITorrentItemWrapper> result = await sut.GetIncompleteDownloads();
+
+            // Assert
+            result.Select(x => x.DownloadId).ShouldBe(["downloading", "paused", "queued"]);
+        }
+
+        [Fact]
+        public async Task NeverOverlapsWithSeedingDownloads()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+
+            var downloads = Enum.GetValues<DelugeState>()
+                .SelectMany(state => new[]
+                {
+                    Status($"{state}-partial", state, 5),
+                    Status($"{state}-finished", state, 100, isFinished: true)
+                })
+                .ToList();
+
+            _fixture.ClientWrapper
+                .GetStatusForAllTorrents()
+                .Returns(downloads);
+
+            // Act
+            List<ITorrentItemWrapper> seeding = await sut.GetSeedingDownloads();
+            List<ITorrentItemWrapper> incomplete = await sut.GetIncompleteDownloads();
+
+            // Assert
+            incomplete.ShouldNotBeEmpty();
+            seeding.Select(x => x.DownloadId).Intersect(incomplete.Select(x => x.DownloadId)).ShouldBeEmpty();
+        }
+
+        [Fact]
+        public async Task ReturnsEmptyList_WhenNull()
+        {
+            // Arrange
+            var sut = _fixture.CreateSut();
+
+            _fixture.ClientWrapper
+                .GetStatusForAllTorrents()
+                .Returns((List<DownloadStatus>?)null);
+
+            // Act
+            List<ITorrentItemWrapper> result = await sut.GetIncompleteDownloads();
+
+            // Assert
+            result.ShouldBeEmpty();
+        }
+    }
+
     public class FilterDownloadsToBeCleanedAsync_Tests : DelugeServiceDCTests
     {
         public FilterDownloadsToBeCleanedAsync_Tests(DelugeServiceFixture fixture) : base(fixture)
