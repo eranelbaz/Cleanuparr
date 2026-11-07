@@ -184,6 +184,9 @@ export class DownloadCleanerComponent implements HasPendingChanges {
   readonly isSeedersFilterableClient = computed(() =>
     this.hasCapability(this.selectedClient()?.downloadClientTypeName as DownloadClientTypeName, DownloadClientCapability.SeedersFiltering));
 
+  readonly isAbandonCapableClient = computed(() =>
+    this.hasCapability(this.selectedClient()?.downloadClientTypeName as DownloadClientTypeName, DownloadClientCapability.Abandon));
+
   // Dead torrent detection needs a seeder count; rTorrent does not report one.
   readonly isDeadTorrentCapableClient = computed(() =>
     this.hasCapability(this.selectedClient()?.downloadClientTypeName as DownloadClientTypeName, DownloadClientCapability.DeadTorrent));

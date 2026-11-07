@@ -50,4 +50,9 @@ public enum DownloadClientCapability
     /// Reports an error state and can resume a download. Backs <c>IErrorRecoveryCapable</c>.
     /// </summary>
     ErrorRecovery,
+
+    /// <summary>
+    /// Seeding rules can abandon incomplete downloads. Backs <c>IAbandonable</c> on the client's seeding rule type.
+    /// </summary>
+    Abandon,
 }

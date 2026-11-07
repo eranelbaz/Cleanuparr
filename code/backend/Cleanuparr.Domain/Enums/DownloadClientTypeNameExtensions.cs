@@ -63,12 +63,14 @@ public static class DownloadClientTypeNameExtensions
 
     /// <summary>
     /// Every torrent client reports a seeder count and supports min-seeders filtering, except rTorrent.
+    /// The same clients report hit-and-run safe progress, so they can abandon incomplete downloads.
     /// </summary>
     private static readonly DownloadClientCapability[] SeedersCapableTorrentCapabilities =
     [
         ..BaseTorrentCapabilities,
         DownloadClientCapability.SeedersFiltering,
         DownloadClientCapability.DeadTorrent,
+        DownloadClientCapability.Abandon,
     ];
 
     private static readonly Dictionary<DownloadClientTypeName, DownloadClientCapability[]> Capabilities = new()

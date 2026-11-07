@@ -36,6 +36,7 @@ const RULE: SeedingRule = {
     [isSelectedClientTransmission]="isSelectedClientTransmission()"
     [isSeedersFilterableClient]="isSeedersFilterableClient()"
     [isInactivityFilterableClient]="isInactivityFilterableClient()"
+    [isAbandonCapableClient]="isAbandonCapableClient()"
     (saved)="savedCount = savedCount + 1"
   />`,
 })
@@ -47,6 +48,7 @@ class HostComponent {
   readonly isSelectedClientTransmission = signal(false);
   readonly isSeedersFilterableClient = signal(false);
   readonly isInactivityFilterableClient = signal(false);
+  readonly isAbandonCapableClient = signal(false);
   savedCount = 0;
 }
 
@@ -134,6 +136,9 @@ describe('SeedingRuleModalComponent', () => {
       maxSeedTime: 240,
       minSeeders: 3,
       maxInactiveDays: 7,
+      abandonEnabled: false,
+      abandonBelowPercentage: 10,
+      abandonAfterHours: 24,
       action: SeedingRuleAction.Delete,
       deleteSourceFiles: false,
     });
@@ -146,8 +151,9 @@ describe('SeedingRuleModalComponent', () => {
     expect(modal.model()).toEqual({
       name: '', categories: [], trackerPatterns: [], tagsAny: [], tagsAll: [],
       privacyType: TorrentPrivacyType.Public, maxRatio: -1, minSeedTime: 0,
-      maxSeedTime: -1, minSeeders: 0, maxInactiveDays: -1, action: SeedingRuleAction.Delete,
-      deleteSourceFiles: true,
+      maxSeedTime: -1, minSeeders: 0, maxInactiveDays: -1,
+      abandonEnabled: false, abandonBelowPercentage: 10, abandonAfterHours: 24,
+      action: SeedingRuleAction.Delete, deleteSourceFiles: true,
     });
     expect(modal.hasPendingChanges()).toBe(false);
     expect(text(fixture)).toContain('Add Seeding Rule');
@@ -237,6 +243,164 @@ describe('SeedingRuleModalComponent', () => {
     expect(text(fixture)).toContain('Labels (All)');
   });
 
+  describe('abandon incomplete downloads', () => {
+    const ABANDON_RULE: SeedingRule = { ...RULE, maxRatio: -1, maxSeedTime: -1, abandonBelowPercentage: 10, abandonAfterHours: 48 };
+
+    it('hides the section and explains why for clients that cannot abandon', () => {
+      const { fixture } = setup(RULE);
+
+      expect(text(fixture)).not.toContain('Abandon Incomplete Downloads');
+      expect(text(fixture)).toContain('Abandoning incomplete downloads is not available for this download client.');
+    });
+
+    it('shows the toggle for capable clients and the fields only once it is enabled', () => {
+      const { fixture, host, modal } = setup(RULE);
+      host.isAbandonCapableClient.set(true);
+      fixture.detectChanges();
+
+      expect(text(fixture)).toContain('Abandon Incomplete Downloads');
+      expect(() => numberField(fixture, 'Abandon Below')).toThrow();
+
+      modal.model.update(m => ({ ...m, abandonEnabled: true }));
+      fixture.detectChanges();
+
+      expect(numberField(fixture, 'Abandon Below').value).toBe('10');
+      expect(numberField(fixture, 'Abandon After').value).toBe('24');
+    });
+
+    it('turns on through the toggle and offers the defaults for a rule saved with abandon off', () => {
+      const { fixture, host, modal } = setup({ ...RULE, abandonBelowPercentage: -1, abandonAfterHours: 0 });
+      host.isAbandonCapableClient.set(true);
+      fixture.detectChanges();
+
+      expect(modal.hasPendingChanges()).toBe(false);
+
+      const toggle = Array.from(fixture.nativeElement.querySelectorAll('app-toggle') as NodeListOf<HTMLElement>)
+        .find(el => el.textContent?.includes('Abandon Incomplete Downloads'))!
+        .querySelector('button[role="switch"]') as HTMLButtonElement;
+      toggle.click();
+      fixture.detectChanges();
+
+      expect(modal.model().abandonEnabled).toBe(true);
+      expect(numberField(fixture, 'Abandon Below').value).toBe('10');
+      expect(numberField(fixture, 'Abandon After').value).toBe('24');
+    });
+
+    it('loads an abandon rule as enabled with its saved values and reports it clean', () => {
+      const { fixture, host, modal } = setup(ABANDON_RULE);
+      host.isAbandonCapableClient.set(true);
+      fixture.detectChanges();
+
+      expect(modal.model()).toMatchObject({ abandonEnabled: true, abandonBelowPercentage: 10, abandonAfterHours: 48 });
+      expect(modal.hasPendingChanges()).toBe(false);
+    });
+
+    it('keeps the saved abandon values when an unrelated field is edited', () => {
+      const { fixture, host, modal, api } = setup(ABANDON_RULE);
+      host.isAbandonCapableClient.set(true);
+      fixture.detectChanges();
+
+      modal.model.update(m => ({ ...m, name: 'Renamed' }));
+      fixture.detectChanges();
+      modal.save();
+
+      expect(api.updateSeedingRule).toHaveBeenCalledWith('rule-a', expect.objectContaining({
+        name: 'Renamed', abandonBelowPercentage: 10, abandonAfterHours: 48,
+      }));
+    });
+
+    it('accepts an abandon-only rule and creates it', () => {
+      const { fixture, host, modal, api } = setup();
+      host.isAbandonCapableClient.set(true);
+      modal.model.update(m => ({
+        ...m, name: 'TorrentLeech', categories: ['tl'], abandonEnabled: true, abandonBelowPercentage: 10, abandonAfterHours: 24,
+      }));
+      fixture.detectChanges();
+
+      expect(modal.disabledError()).toBeUndefined();
+      modal.save();
+
+      expect(api.createSeedingRule).toHaveBeenCalledWith('client-qb', expect.objectContaining({
+        maxRatio: -1, maxSeedTime: -1, abandonBelowPercentage: 10, abandonAfterHours: 24,
+      }));
+    });
+
+    it('sends abandon as disabled when the toggle is turned off', () => {
+      const { fixture, host, modal, api } = setup({ ...ABANDON_RULE, maxRatio: 1 });
+      host.isAbandonCapableClient.set(true);
+      fixture.detectChanges();
+
+      modal.model.update(m => ({ ...m, abandonEnabled: false }));
+      fixture.detectChanges();
+      modal.save();
+
+      expect(api.updateSeedingRule).toHaveBeenCalledWith('rule-a', expect.objectContaining({
+        abandonBelowPercentage: -1, abandonAfterHours: 0,
+      }));
+    });
+
+    it('does not count abandon as a removal condition for clients that cannot abandon', () => {
+      const { fixture, modal, api } = setup({ ...RULE, maxRatio: -1, maxSeedTime: -1 });
+      modal.model.update(m => ({ ...m, abandonEnabled: true }));
+      fixture.detectChanges();
+
+      expect(modal.disabledError()).toBe('Both max ratio and max seed time cannot be disabled at the same time');
+      modal.save();
+
+      expect(api.updateSeedingRule).not.toHaveBeenCalled();
+    });
+
+    it('asks for a removal condition including abandon for capable clients', () => {
+      const { fixture, host, modal } = setup({ ...RULE, maxRatio: -1, maxSeedTime: -1 });
+      host.isAbandonCapableClient.set(true);
+      fixture.detectChanges();
+
+      expect(modal.disabledError()).toBe('Set a max ratio, a max seed time or enable abandoning incomplete downloads');
+    });
+
+    it.each([
+      [0, 24, 'Percentage must be greater than 0'],
+      [-0.5, 24, 'Percentage must be greater than 0'],
+      [101, 24, 'Percentage cannot exceed 100'],
+      [null, 24, 'Percentage is required'],
+    ])('rejects an abandon percentage of %s', (percentage, hours, message) => {
+      const { fixture, host, modal, api } = setup(ABANDON_RULE);
+      host.isAbandonCapableClient.set(true);
+      modal.model.update(m => ({ ...m, abandonBelowPercentage: percentage, abandonAfterHours: hours }));
+      fixture.detectChanges();
+
+      expect(modal.abandonPercentageError()).toBe(message);
+      modal.save();
+
+      expect(api.updateSeedingRule).not.toHaveBeenCalled();
+    });
+
+    it('rejects negative abandon hours', () => {
+      const { fixture, host, modal, api } = setup(ABANDON_RULE);
+      host.isAbandonCapableClient.set(true);
+      modal.model.update(m => ({ ...m, abandonAfterHours: -1 }));
+      fixture.detectChanges();
+
+      expect(modal.abandonHoursError()).toBe('Hours cannot be negative');
+      modal.save();
+
+      expect(api.updateSeedingRule).not.toHaveBeenCalled();
+    });
+
+    it('ignores invalid abandon values while abandoning is off', () => {
+      const { fixture, host, modal, api } = setup(RULE);
+      host.isAbandonCapableClient.set(true);
+      modal.model.update(m => ({ ...m, abandonEnabled: false, abandonBelowPercentage: 0, abandonAfterHours: -1 }));
+      fixture.detectChanges();
+
+      modal.save();
+
+      expect(api.updateSeedingRule).toHaveBeenCalledWith('rule-a', expect.objectContaining({
+        abandonBelowPercentage: -1, abandonAfterHours: 0,
+      }));
+    });
+  });
+
   it('reports both removal conditions being disabled and refuses to save', () => {
     const { fixture, modal, api } = setup(RULE);
 
@@ -279,6 +443,8 @@ describe('SeedingRuleModalComponent', () => {
       maxSeedTime: -1,
       minSeeders: 0,
       maxInactiveDays: -1,
+      abandonBelowPercentage: -1,
+      abandonAfterHours: 0,
       action: SeedingRuleAction.Delete,
       deleteSourceFiles: true,
     });

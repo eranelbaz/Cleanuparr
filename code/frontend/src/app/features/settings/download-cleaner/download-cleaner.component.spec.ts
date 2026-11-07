@@ -126,7 +126,7 @@ const TYPES: DownloadClientTypesResponse = {
       capabilities: [
         DownloadClientCapability.SeedingCleanup, DownloadClientCapability.TagFiltering,
         DownloadClientCapability.SeedersFiltering, DownloadClientCapability.DeadTorrent,
-        DownloadClientCapability.OrphanClaims, DownloadClientCapability.Unlinked,
+        DownloadClientCapability.OrphanClaims, DownloadClientCapability.Unlinked, DownloadClientCapability.Abandon,
       ],
     },
     {
@@ -306,6 +306,7 @@ describe('DownloadCleanerComponent', () => {
     expect(component.isTagFilterableClient()).toBe(true);
     expect(component.isSeedersFilterableClient()).toBe(true);
     expect(component.isDeadTorrentCapableClient()).toBe(true);
+    expect(component.isAbandonCapableClient()).toBe(true);
     expect(fixture.nativeElement.textContent).toContain('Dead Torrents');
 
     await component.onClientChange('client-rt');
@@ -315,7 +316,24 @@ describe('DownloadCleanerComponent', () => {
     expect(component.isTagFilterableClient()).toBe(false);
     expect(component.isSeedersFilterableClient()).toBe(false);
     expect(component.isDeadTorrentCapableClient()).toBe(false);
+    expect(component.isAbandonCapableClient()).toBe(false);
     expect(fixture.nativeElement.textContent).not.toContain('Dead Torrents');
+  });
+
+  it('shows the abandon settings on rules that abandon incomplete downloads', async () => {
+    const abandonRule: SeedingRule = { ...RULE_A, id: 'rule-tl', name: 'TorrentLeech', abandonBelowPercentage: 10, abandonAfterHours: 24 };
+    const config: DownloadCleanerConfig = {
+      ...CONFIG,
+      clients: [{ ...CONFIG.clients[0], seedingRules: [abandonRule, { ...RULE_B, abandonBelowPercentage: -1, abandonAfterHours: 0 }] }, ...CONFIG.clients.slice(1)],
+    };
+    const { fixture, component } = await setup(config);
+    component.seedingRulesExpanded.set(true);
+    fixture.detectChanges();
+
+    const badges = Array.from(fixture.nativeElement.querySelectorAll('app-badge') as NodeListOf<HTMLElement>)
+      .map(badge => badge.textContent?.trim())
+      .filter(text => text?.startsWith('Abandon'));
+    expect(badges).toEqual(['Abandon: <10% after 24h']);
   });
 
   it('hides seeding rules and unlinked downloads for a seeding-incapable client but keeps orphaned files', async () => {
