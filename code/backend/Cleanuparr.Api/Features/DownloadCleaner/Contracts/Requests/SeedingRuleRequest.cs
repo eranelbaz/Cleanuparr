@@ -67,6 +67,17 @@ public record SeedingRuleRequest
     public double MaxInactiveDays { get; init; } = -1;
 
     /// <summary>
+    /// Incomplete downloads below this downloaded percentage are abandoned. -1 disables abandoning.
+    /// Ignored for rTorrent.
+    /// </summary>
+    public double AbandonBelowPercentage { get; init; } = -1;
+
+    /// <summary>
+    /// Number of hours since the download was added before it can be abandoned. Ignored for rTorrent.
+    /// </summary>
+    public double AbandonAfterHours { get; init; }
+
+    /// <summary>
     /// Whether to delete the source files when cleaning the download.
     /// </summary>
     public bool DeleteSourceFiles { get; init; } = true;

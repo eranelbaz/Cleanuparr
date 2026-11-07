@@ -72,6 +72,8 @@ public class SeedingRulesResponseContractTests : IDisposable
 
     private static readonly string[] ListDtoKeys =
     [
+        "abandonAfterHours",
+        "abandonBelowPercentage",
         "action",
         "categories",
         "deleteSourceFiles",

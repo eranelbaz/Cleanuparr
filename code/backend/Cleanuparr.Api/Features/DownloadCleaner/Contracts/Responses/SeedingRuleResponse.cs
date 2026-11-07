@@ -31,6 +31,16 @@ public sealed record SeedingRuleResponse
 
     public double? MaxInactiveDays { get; init; }
 
+    /// <summary>
+    /// Null when the client does not support abandoning (rTorrent).
+    /// </summary>
+    public double? AbandonBelowPercentage { get; init; }
+
+    /// <summary>
+    /// Null when the client does not support abandoning (rTorrent).
+    /// </summary>
+    public double? AbandonAfterHours { get; init; }
+
     public bool DeleteSourceFiles { get; init; }
 
     public SeedingRuleAction Action { get; init; }
@@ -50,6 +60,8 @@ public sealed record SeedingRuleResponse
         MaxSeedTime = rule.MaxSeedTime,
         MinSeeders = (rule as ISeedersFilterable)?.MinSeeders,
         MaxInactiveDays = (rule as IInactivityFilterable)?.MaxInactiveDays,
+        AbandonBelowPercentage = (rule as IAbandonable)?.AbandonBelowPercentage,
+        AbandonAfterHours = (rule as IAbandonable)?.AbandonAfterHours,
         DeleteSourceFiles = rule.DeleteSourceFiles,
         Action = rule.Action,
     };
