@@ -42,6 +42,10 @@ public sealed class QBitItemWrapper : ITorrentItemWrapper
     
     public long DownloadedBytes => Info.Downloaded ?? 0;
 
+    /// <inheritdoc/>
+    /// <remarks><c>size</c> and <c>progress</c> cover the selected files only; <c>downloaded</c> is all-time, wasted bytes included.</remarks>
+    public double HnrDownloadedPercentage => HnrPercentage.From(Info.Progress, Info.Downloaded, Info.Size);
+
     public long DownloadSpeed => Info.DownloadSpeed;
     
     public double Ratio => Info.Ratio;

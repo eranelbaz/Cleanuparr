@@ -44,6 +44,8 @@ public partial class TransmissionService : TorrentDownloadService, IDeadTorrentC
         TorrentFields.ADDED_DATE,
         TorrentFields.ERROR,
         TorrentFields.ERROR_STRING,
+        TorrentFields.PERCENT_DONE,
+        TorrentFields.SIZE_WHEN_DONE,
     ];
 
     public TransmissionService(

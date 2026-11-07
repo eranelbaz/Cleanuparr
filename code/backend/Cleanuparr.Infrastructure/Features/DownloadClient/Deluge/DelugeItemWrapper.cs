@@ -39,6 +39,10 @@ public sealed class DelugeItemWrapper : ITorrentItemWrapper
     
     public long DownloadedBytes => Info.TotalDone;
 
+    /// <inheritdoc/>
+    /// <remarks>Deluge reports <c>progress</c> as 0-100 over the wanted files.</remarks>
+    public double HnrDownloadedPercentage => HnrPercentage.From(Info.Progress / 100.0, Info.AllTimeDownload, Info.TotalWanted);
+
     public long DownloadSpeed => Info.DownloadSpeed;
     
     public double Ratio => Info.Ratio;
@@ -51,8 +55,9 @@ public sealed class DelugeItemWrapper : ITorrentItemWrapper
     public TrackerHealth TrackerHealth => TrackerHealth.Unsupported;
 
     /// <inheritdoc/>
-    /// <remarks>The requested Deluge status fields carry no added time; always returns <see langword="null"/>.</remarks>
-    public DateTimeOffset? AddedOn => null;
+    public DateTimeOffset? AddedOn => Info.TimeAdded > 0
+        ? DateTimeOffset.FromUnixTimeMilliseconds((long)(Info.TimeAdded * 1000))
+        : null;
 
     /// <summary>
     /// The number of seconds that the download needs to finish.

@@ -92,4 +92,30 @@ public sealed record DownloadStatus
     /// </summary>
     [JsonPropertyName("download_location")]
     public string DownloadLocation { get; init; } = string.Empty;
+
+    /// <summary>
+    /// The time that Deluge added the torrent, in seconds since the Unix epoch.
+    /// </summary>
+    [JsonPropertyName("time_added")]
+    public double TimeAdded { get; init; }
+
+    /// <summary>
+    /// The progress of the wanted files, from 0 to 100.
+    /// Null when the request did not ask for it.
+    /// </summary>
+    public double? Progress { get; init; }
+
+    /// <summary>
+    /// The size of the wanted files in bytes.
+    /// Null when the request did not ask for it.
+    /// </summary>
+    [JsonPropertyName("total_wanted")]
+    public long? TotalWanted { get; init; }
+
+    /// <summary>
+    /// The number of bytes that Deluge got over the life of the torrent, wasted bytes included.
+    /// Null when the request did not ask for it.
+    /// </summary>
+    [JsonPropertyName("all_time_download")]
+    public long? AllTimeDownload { get; init; }
 }
