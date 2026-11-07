@@ -508,7 +508,8 @@ public sealed class QBitSeedingRuleTests
             Categories = ["test-category"],
             MaxRatio = 1,
             MaxSeedTime = -1,
-            AbandonBelowPercentage = percentage
+            AbandonBelowPercentage = percentage,
+            AbandonAfterHours = 24
         };
 
         Should.NotThrow(() => config.Validate());
@@ -534,8 +535,11 @@ public sealed class QBitSeedingRuleTests
         exception.Message.ShouldBe("Abandon below percentage must be -1 (disabled) or greater than 0 and at most 100");
     }
 
-    [Fact]
-    public void Validate_WithNegativeAbandonAfterHours_ThrowsValidationException()
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(0)]
+    [InlineData(0.5)]
+    public void Validate_WithAbandonAfterHoursBelowOne_ThrowsValidationException(double hours)
     {
         var config = new QBitSeedingRule
         {
@@ -544,11 +548,27 @@ public sealed class QBitSeedingRuleTests
             MaxRatio = 1,
             MaxSeedTime = -1,
             AbandonBelowPercentage = 10,
-            AbandonAfterHours = -1
+            AbandonAfterHours = hours
         };
 
         var exception = Should.Throw<CustomValidationException>(() => config.Validate());
-        exception.Message.ShouldBe("Abandon after hours can not be negative");
+        exception.Message.ShouldBe("Abandon after hours must be at least 1");
+    }
+
+    [Fact]
+    public void Validate_WithAbandonDisabled_IgnoresAbandonAfterHours()
+    {
+        var config = new QBitSeedingRule
+        {
+            Name = "test-category",
+            Categories = ["test-category"],
+            MaxRatio = 1,
+            MaxSeedTime = -1,
+            AbandonBelowPercentage = -1,
+            AbandonAfterHours = 0
+        };
+
+        Should.NotThrow(() => config.Validate());
     }
 
     [Fact]
@@ -581,6 +601,7 @@ public sealed class QBitSeedingRuleTests
         rule.MaxRatio = -1;
         rule.MaxSeedTime = -1;
         ((IAbandonable)rule).AbandonBelowPercentage = 10;
+        ((IAbandonable)rule).AbandonAfterHours = 24;
 
         Should.NotThrow(() => rule.Validate());
     }

@@ -127,9 +127,16 @@ public sealed class DownloadCleaner : GenericHandler
                     downloadServiceToDownloadsMap[seedingCapableService] = clientDownloads;
                 }
 
-                if (await _seedingRulesService.HasAbandonRulesAsync(seedingCapableService))
+                try
                 {
-                    abandonCapableServices.Add(seedingCapableService);
+                    if (await _seedingRulesService.HasAbandonRulesAsync(seedingCapableService))
+                    {
+                        abandonCapableServices.Add(seedingCapableService);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to load abandon rules for download client {clientName}", downloadService.ClientConfig.Name);
                 }
             }
             catch (Exception ex)
@@ -208,7 +215,7 @@ public sealed class DownloadCleaner : GenericHandler
             }
         }
 
-        if (downloadServiceToDownloadsMap.Count is 0)
+        if (downloadServiceToDownloadsMap.Count is 0 && abandonCapableServices.Count is 0)
         {
             _logger.LogInformation("No seeding downloads found");
         }

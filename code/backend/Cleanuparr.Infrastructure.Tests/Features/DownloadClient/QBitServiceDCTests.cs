@@ -1267,7 +1267,7 @@ public class QBitServiceDCTests : IClassFixture<QBitServiceFixture>
             SetupClient(torrent);
 
             // Act
-            await sut.AbandonDownloadsAsync([torrent], [CreateRule(abandonAfterHours: 0)]);
+            await sut.AbandonDownloadsAsync([torrent], [CreateRule(abandonAfterHours: 1)]);
 
             // Assert
             await _fixture.ClientWrapper.DidNotReceive().DeleteAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<bool>());

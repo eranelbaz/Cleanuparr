@@ -288,7 +288,7 @@ public class SeedingRulesControllerTests : IDisposable
     public async Task CreateSeedingRule_RTorrent_AbandonOnlyRule_ThrowsValidationException()
     {
         DownloadClientConfig client = SeedingRulesTestDataFactory.AddDownloadClient(_dataContext, DownloadClientTypeName.rTorrent, "Test rTorrent");
-        SeedingRuleRequest request = CreateValidRequest(maxRatio: -1, maxSeedTime: -1, abandonBelowPercentage: 10);
+        SeedingRuleRequest request = CreateValidRequest(maxRatio: -1, maxSeedTime: -1, abandonBelowPercentage: 10, abandonAfterHours: 24);
 
         await Should.ThrowAsync<CustomValidationException>(() => _controller.CreateSeedingRule(client.Id, request));
     }
@@ -297,6 +297,7 @@ public class SeedingRulesControllerTests : IDisposable
     [InlineData(0, 24)]
     [InlineData(101, 24)]
     [InlineData(10, -1)]
+    [InlineData(10, 0)]
     public async Task CreateSeedingRule_InvalidAbandonValues_ThrowsValidationException(double abandonBelowPercentage, double abandonAfterHours)
     {
         DownloadClientConfig client = SeedingRulesTestDataFactory.AddDownloadClient(_dataContext);

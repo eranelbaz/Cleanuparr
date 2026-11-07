@@ -115,7 +115,7 @@ export class SeedingRuleModalComponent {
     });
     applyWhen(p.abandonAfterHours, () => this.isAbandonActive(), (hours) => {
       required(hours, { message: 'Hours are required' });
-      min(hours, 0, { message: 'Hours cannot be negative' });
+      min(hours, 1, { message: 'Hours must be at least 1' });
     });
     validate(p.maxSeedTime, () => {
       const m = this.model();

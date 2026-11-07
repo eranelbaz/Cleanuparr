@@ -14,7 +14,8 @@ public interface IAbandonable
     double AbandonBelowPercentage { get; set; }
 
     /// <summary>
-    /// Number of hours since the download was added before it can be abandoned.
+    /// Number of hours since the download was added before it can be abandoned. At least 1, so a download grabbed
+    /// between the arr queue read and the abandon step is never dropped seconds after it was added.
     /// </summary>
     double AbandonAfterHours { get; set; }
 
@@ -33,9 +34,9 @@ public interface IAbandonable
             throw new CustomValidationException("Abandon below percentage must be -1 (disabled) or greater than 0 and at most 100");
         }
 
-        if (AbandonAfterHours < 0)
+        if (IsAbandonEnabled && AbandonAfterHours < 1)
         {
-            throw new CustomValidationException("Abandon after hours can not be negative");
+            throw new CustomValidationException("Abandon after hours must be at least 1");
         }
     }
 }

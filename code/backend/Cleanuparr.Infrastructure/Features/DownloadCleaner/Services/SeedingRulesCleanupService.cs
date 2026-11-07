@@ -53,9 +53,11 @@ public sealed class SeedingRulesCleanupService : ISeedingRulesCleanupService
         _logger.LogInformation("Finished cleanup evaluation");
     }
 
+    /// <inheritdoc/>
     public async Task<bool> HasAbandonRulesAsync(ISeedingCleanupCapable downloadService) =>
         (await LoadRulesAsync(downloadService.ClientConfig)).Any(rule => rule is IAbandonable { IsAbandonEnabled: true });
 
+    /// <inheritdoc/>
     public async Task AbandonAsync(ISeedingCleanupCapable downloadService, List<ITorrentItemWrapper> incompleteDownloads)
     {
         if (incompleteDownloads.Count is 0)
@@ -66,11 +68,6 @@ public sealed class SeedingRulesCleanupService : ISeedingRulesCleanupService
         try
         {
             List<ISeedingRule> seedingRules = await LoadRulesAsync(downloadService.ClientConfig);
-
-            if (!seedingRules.Any(rule => rule is IAbandonable { IsAbandonEnabled: true }))
-            {
-                return;
-            }
 
             List<ITorrentItemWrapper>? downloadsToAbandon = downloadService
                 .FilterDownloadsToBeCleanedAsync(incompleteDownloads, seedingRules);

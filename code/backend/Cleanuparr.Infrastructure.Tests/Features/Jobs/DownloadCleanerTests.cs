@@ -396,7 +396,7 @@ public class DownloadCleanerTests : IDisposable
         await mockDownloadService.Received(1).AbandonDownloadsAsync(
             Arg.Is<List<ITorrentItemWrapper>>(d => d.Single().DownloadId == "manual-hash"),
             Arg.Any<List<ISeedingRule>>());
-        _logger.HasLogContaining(LogLevel.Information, "No seeding downloads found").ShouldBeTrue();
+        _logger.HasLogContaining(LogLevel.Information, "No seeding downloads found").ShouldBeFalse();
     }
 
     [Fact]

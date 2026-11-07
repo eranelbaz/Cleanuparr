@@ -375,13 +375,13 @@ describe('SeedingRuleModalComponent', () => {
       expect(api.updateSeedingRule).not.toHaveBeenCalled();
     });
 
-    it('rejects negative abandon hours', () => {
+    it.each([-1, 0, 0.5])('rejects abandon hours of %s', (hours) => {
       const { fixture, host, modal, api } = setup(ABANDON_RULE);
       host.isAbandonCapableClient.set(true);
-      modal.model.update(m => ({ ...m, abandonAfterHours: -1 }));
+      modal.model.update(m => ({ ...m, abandonAfterHours: hours }));
       fixture.detectChanges();
 
-      expect(modal.abandonHoursError()).toBe('Hours cannot be negative');
+      expect(modal.abandonHoursError()).toBe('Hours must be at least 1');
       modal.save();
 
       expect(api.updateSeedingRule).not.toHaveBeenCalled();

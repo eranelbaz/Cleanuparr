@@ -231,7 +231,7 @@ Supported by **qBittorrent** only.
 Also act on **incomplete** downloads this rule matches, for private trackers that only count a hit-and-run once you have downloaded a share of a torrent. TorrentLeech, for example, only gives a hit-and-run for torrents you downloaded at least 10% of, so a stuck download below 10% is safe to drop.
 
 A matching incomplete download is abandoned (the rule's **Action** is applied) when:
-- it was added at least **Abandon After** hours ago, and
+- it was added at least **Abandon After** hours ago (minimum `1`, so a download grabbed during a run is never dropped seconds after it was added), and
 - less than **Abandon Below** percent of it has been downloaded.
 
 Downloads at or above the percentage are never abandoned. They finish and then follow the rule's ratio and seed time settings.
