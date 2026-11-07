@@ -25,21 +25,7 @@ public sealed class SeedingRulesCleanupService : ISeedingRulesCleanupService
     {
         try
         {
-            DownloadClientConfig config = downloadService.ClientConfig;
-            List<ISeedingRule> seedingRules = config.TypeName switch
-            {
-                DownloadClientTypeName.qBittorrent => (await _dataContext.QBitSeedingRules
-                    .Where(r => r.DownloadClientConfigId == config.Id).AsNoTracking().ToListAsync()).Cast<ISeedingRule>().ToList(),
-                DownloadClientTypeName.Deluge => (await _dataContext.DelugeSeedingRules
-                    .Where(r => r.DownloadClientConfigId == config.Id).AsNoTracking().ToListAsync()).Cast<ISeedingRule>().ToList(),
-                DownloadClientTypeName.Transmission => (await _dataContext.TransmissionSeedingRules
-                    .Where(r => r.DownloadClientConfigId == config.Id).AsNoTracking().ToListAsync()).Cast<ISeedingRule>().ToList(),
-                DownloadClientTypeName.uTorrent => (await _dataContext.UTorrentSeedingRules
-                    .Where(r => r.DownloadClientConfigId == config.Id).AsNoTracking().ToListAsync()).Cast<ISeedingRule>().ToList(),
-                DownloadClientTypeName.rTorrent => (await _dataContext.RTorrentSeedingRules
-                    .Where(r => r.DownloadClientConfigId == config.Id).AsNoTracking().ToListAsync()).Cast<ISeedingRule>().ToList(),
-                _ => []
-            };
+            List<ISeedingRule> seedingRules = await LoadRulesAsync(downloadService.ClientConfig);
 
             if (seedingRules.Count is 0)
             {
@@ -66,4 +52,57 @@ public sealed class SeedingRulesCleanupService : ISeedingRulesCleanupService
 
         _logger.LogInformation("Finished cleanup evaluation");
     }
+
+    public async Task<bool> HasAbandonRulesAsync(ISeedingCleanupCapable downloadService) =>
+        (await LoadRulesAsync(downloadService.ClientConfig)).Any(rule => rule is IAbandonable { IsAbandonEnabled: true });
+
+    public async Task AbandonAsync(ISeedingCleanupCapable downloadService, List<ITorrentItemWrapper> incompleteDownloads)
+    {
+        if (incompleteDownloads.Count is 0)
+        {
+            return;
+        }
+
+        try
+        {
+            List<ISeedingRule> seedingRules = await LoadRulesAsync(downloadService.ClientConfig);
+
+            if (!seedingRules.Any(rule => rule is IAbandonable { IsAbandonEnabled: true }))
+            {
+                return;
+            }
+
+            List<ITorrentItemWrapper>? downloadsToAbandon = downloadService
+                .FilterDownloadsToBeCleanedAsync(incompleteDownloads, seedingRules);
+
+            if (downloadsToAbandon?.Count is null or 0)
+            {
+                return;
+            }
+
+            _logger.LogInformation("Evaluating {count} incomplete downloads for abandoning", downloadsToAbandon.Count);
+
+            await downloadService.AbandonDownloadsAsync(downloadsToAbandon, seedingRules);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to abandon downloads for {clientName}", downloadService.ClientConfig.Name);
+        }
+    }
+
+    private async Task<List<ISeedingRule>> LoadRulesAsync(DownloadClientConfig config) =>
+        config.TypeName switch
+        {
+            DownloadClientTypeName.qBittorrent => (await _dataContext.QBitSeedingRules
+                .Where(r => r.DownloadClientConfigId == config.Id).AsNoTracking().ToListAsync()).Cast<ISeedingRule>().ToList(),
+            DownloadClientTypeName.Deluge => (await _dataContext.DelugeSeedingRules
+                .Where(r => r.DownloadClientConfigId == config.Id).AsNoTracking().ToListAsync()).Cast<ISeedingRule>().ToList(),
+            DownloadClientTypeName.Transmission => (await _dataContext.TransmissionSeedingRules
+                .Where(r => r.DownloadClientConfigId == config.Id).AsNoTracking().ToListAsync()).Cast<ISeedingRule>().ToList(),
+            DownloadClientTypeName.uTorrent => (await _dataContext.UTorrentSeedingRules
+                .Where(r => r.DownloadClientConfigId == config.Id).AsNoTracking().ToListAsync()).Cast<ISeedingRule>().ToList(),
+            DownloadClientTypeName.rTorrent => (await _dataContext.RTorrentSeedingRules
+                .Where(r => r.DownloadClientConfigId == config.Id).AsNoTracking().ToListAsync()).Cast<ISeedingRule>().ToList(),
+            _ => []
+        };
 }

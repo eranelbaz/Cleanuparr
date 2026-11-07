@@ -266,9 +266,13 @@ public abstract class TorrentDownloadService : DownloadService, ISeedingCleanupC
                 continue;
             }
 
-            string reason = result.Reason is CleanReason.MaxRatioReached
-                ? "MAX_RATIO & MIN_SEED_TIME"
-                : "MAX_SEED_TIME";
+            string reason = result.Reason switch
+            {
+                CleanReason.MaxRatioReached => "MAX_RATIO & MIN_SEED_TIME",
+                CleanReason.MaxSeedTimeReached => "MAX_SEED_TIME",
+                CleanReason.AbandonedBelowThreshold => "ABANDON_BELOW_PERCENTAGE",
+                _ => result.Reason.ToString()
+            };
 
             if (stopping)
             {
@@ -286,6 +290,110 @@ public abstract class TorrentDownloadService : DownloadService, ISeedingCleanupC
             );
 
             await _eventPublisher.PublishDownloadCleaned(torrent.Ratio, seedingTime, torrent.Category ?? string.Empty, result.Reason);
+        }
+    }
+
+    /// <inheritdoc cref="ISeedingCleanupCapable.AbandonDownloadsAsync"/>
+    public virtual async Task AbandonDownloadsAsync(List<ITorrentItemWrapper>? downloads, List<ISeedingRule> seedingRules)
+    {
+        if (downloads?.Count is null or 0)
+        {
+            return;
+        }
+
+        List<IDownloadItem>? allDownloads = null;
+
+        foreach (ITorrentItemWrapper torrent in downloads)
+        {
+            if (string.IsNullOrEmpty(torrent.DownloadId))
+            {
+                continue;
+            }
+
+            ISeedingRule? seedingRule = _seedingRuleEvaluator.GetMatchingRule(torrent, seedingRules);
+
+            if (seedingRule is not IAbandonable { IsAbandonEnabled: true } abandonable)
+            {
+                _logger.LogDebug("skip abandon | matched rule has abandon disabled | {Name}", torrent.Name);
+                continue;
+            }
+
+            if (seedingRule.Action is SeedingRuleAction.Unknown)
+            {
+                _logger.LogWarning(
+                    "Skipping seeding rule with an action this version does not know | {SeedingRule} | {Name}",
+                    seedingRule.Name,
+                    torrent.Name
+                );
+                continue;
+            }
+
+            bool stopping = seedingRule.Action is SeedingRuleAction.Stop;
+
+            if (stopping && torrent.IsStopped)
+            {
+                continue;
+            }
+
+            ContextProvider.Set(ContextProvider.Keys.ItemName, torrent.Name);
+            ContextProvider.Set(ContextProvider.Keys.Hash, torrent.DownloadId);
+            SetDownloadClientContext();
+
+            if (!ShouldAbandon(torrent, abandonable))
+            {
+                continue;
+            }
+
+            bool deleteFiles = false;
+
+            if (!stopping && seedingRule.DeleteSourceFiles)
+            {
+                try
+                {
+                    allDownloads ??= await GetAllDownloadsLite();
+                    deleteFiles = !SharesContentPath(torrent, allDownloads);
+                }
+                catch (Exception exception)
+                {
+                    _logger.LogWarning(exception, "could not check for shared files, keeping them | {Name}", torrent.Name);
+                }
+
+                if (!deleteFiles)
+                {
+                    _logger.LogInformation("keeping files | another download may use the same path | {Name}", torrent.Name);
+                }
+            }
+
+            try
+            {
+                await _dryRunInterceptor.InterceptAsync(() => stopping
+                    ? StopDownload(torrent)
+                    : DeleteDownload(torrent, deleteFiles));
+            }
+            catch (Exception exception)
+            {
+                // The download stays in the client. The run continues with the next download.
+                _logger.LogError(exception, "failed to abandon download | {Name}", torrent.Name);
+                continue;
+            }
+
+            _logger.LogInformation(
+                "download abandoned | {Percentage:0.##}% < {Threshold}% after {Hours}h | {Action} | delete files: {DeleteFiles} | {Name}",
+                torrent.HnrDownloadedPercentage,
+                abandonable.AbandonBelowPercentage,
+                abandonable.AbandonAfterHours,
+                seedingRule.Action,
+                deleteFiles,
+                torrent.Name
+            );
+
+            if (stopping)
+            {
+                await _eventPublisher.PublishDownloadStopped(torrent.Ratio, TimeSpan.Zero, torrent.Category ?? string.Empty, CleanReason.AbandonedBelowThreshold);
+                continue;
+            }
+
+            await _eventPublisher.PublishDownloadCleaned(torrent.Ratio, TimeSpan.Zero, torrent.Category ?? string.Empty, CleanReason.AbandonedBelowThreshold);
         }
     }
 
@@ -448,6 +556,61 @@ public abstract class TorrentDownloadService : DownloadService, ISeedingCleanupC
 
         return new();
     }
+
+    private bool ShouldAbandon(ITorrentItemWrapper torrent, IAbandonable abandonable)
+    {
+        if (torrent.AddedOn is null)
+        {
+            _logger.LogDebug("skip abandon | download added time is unavailable | {Name}", torrent.Name);
+            return false;
+        }
+
+        TimeSpan age = _timeProvider.GetUtcNow() - torrent.AddedOn.Value;
+
+        if (age < TimeSpan.FromHours(abandonable.AbandonAfterHours))
+        {
+            _logger.LogDebug("skip abandon | download has not reached ABANDON_AFTER_HOURS | {Name}", torrent.Name);
+            return false;
+        }
+
+        if (torrent.HnrDownloadedPercentage >= abandonable.AbandonBelowPercentage)
+        {
+            _logger.LogDebug(
+                "skip abandon | download is at {Percentage:0.##}%, not below {Threshold}% | {Name}",
+                torrent.HnrDownloadedPercentage,
+                abandonable.AbandonBelowPercentage,
+                torrent.Name);
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Whether another download in the client points at the same content, or content nested inside it,
+    /// so deleting files would break it. Paths compare case-insensitively, and unknown paths count as shared.
+    /// Only this client's downloads are checked.
+    /// </summary>
+    private bool SharesContentPath(ITorrentItemWrapper torrent, List<IDownloadItem> allDownloads)
+    {
+        if (string.IsNullOrEmpty(torrent.SavePath) || string.IsNullOrEmpty(torrent.Name))
+        {
+            return true;
+        }
+
+        string contentPath = RemapAndTrim(Path.Combine(torrent.SavePath, torrent.Name));
+
+        return allDownloads.Any(other =>
+            !other.DownloadId.Equals(torrent.DownloadId, StringComparison.OrdinalIgnoreCase)
+            && (string.IsNullOrEmpty(other.SavePath)
+                || string.IsNullOrEmpty(other.Name)
+                || PathsOverlap(contentPath, RemapAndTrim(Path.Combine(other.SavePath, other.Name)))));
+    }
+
+    private static bool PathsOverlap(string first, string second) =>
+        first.Equals(second, StringComparison.OrdinalIgnoreCase)
+        || first.StartsWith(second + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+        || second.StartsWith(first + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
 
     private bool DownloadReachedRatio(double ratio, TimeSpan seedingTime, ISeedingRule seedingRule)
     {

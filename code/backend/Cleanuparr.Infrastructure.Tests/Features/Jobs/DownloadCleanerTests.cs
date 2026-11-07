@@ -317,6 +317,273 @@ public class DownloadCleanerTests : IDisposable
         _fixture.ArrClientFactory.Received(1).GetClient(InstanceType.Radarr, Arg.Any<float>());
     }
 
+    [Fact]
+    public async Task ExecuteInternalAsync_WhenOnlyIncompleteDownloads_StillSkipsDownloadsUsedByArrs()
+    {
+        // Arrange
+        TestDataContextFactory.AddDownloadClient(_fixture.DataContext);
+        TestDataContextFactory.AddSeedingRule(_fixture.DataContext, abandonBelowPercentage: 10);
+        TestDataContextFactory.AddSonarrInstance(_fixture.DataContext);
+
+        var incompleteTorrent = Substitute.For<ITorrentItemWrapper>();
+        incompleteTorrent.DownloadId.Returns("arr-incomplete-hash");
+        incompleteTorrent.Name.Returns("Arr Incomplete Download");
+        incompleteTorrent.IsIgnored(Arg.Any<List<string>>()).Returns(false);
+        incompleteTorrent.Category.Returns("completed");
+
+        var dbClient = _fixture.DataContext.DownloadClients.First();
+        var mockDownloadService = _fixture.CreateMockDownloadService();
+        mockDownloadService.ClientConfig.Returns(dbClient);
+        mockDownloadService.GetSeedingDownloads().Returns([]);
+        mockDownloadService.GetIncompleteDownloads().Returns([incompleteTorrent]);
+
+        _fixture.DownloadServiceFactory
+            .GetDownloadService(Arg.Any<DownloadClientConfig>())
+            .Returns(mockDownloadService);
+
+        _fixture.ArrClientFactory
+            .GetClient(Arg.Any<InstanceType>(), Arg.Any<float>())
+            .Returns(Substitute.For<IArrClient>());
+
+        _fixture.ArrQueueReader
+            .ReadAllAsync(Arg.Any<IArrClient>(), Arg.Any<ArrInstance>())
+            .Returns([new QueueRecord { Id = 1, DownloadId = "arr-incomplete-hash", Title = "Test", Protocol = "torrent" }]);
+
+        var sut = CreateSut();
+
+        // Act
+        await ExecuteWithTimeAdvance(sut);
+
+        // Assert
+        await _fixture.ArrQueueReader.Received().ReadAllAsync(Arg.Any<IArrClient>(), Arg.Any<ArrInstance>());
+        _logger.HasLogContaining(LogLevel.Debug, "download is used by an arr").ShouldBeTrue();
+        await mockDownloadService.DidNotReceive()
+            .AbandonDownloadsAsync(Arg.Any<List<ITorrentItemWrapper>>(), Arg.Any<List<ISeedingRule>>());
+    }
+
+    [Fact]
+    public async Task ExecuteInternalAsync_WhenOnlyIncompleteDownloads_AbandonsUnclaimedDownload()
+    {
+        // Arrange
+        TestDataContextFactory.AddDownloadClient(_fixture.DataContext);
+        TestDataContextFactory.AddSeedingRule(_fixture.DataContext, abandonBelowPercentage: 10);
+
+        var incompleteTorrent = Substitute.For<ITorrentItemWrapper>();
+        incompleteTorrent.DownloadId.Returns("manual-hash");
+        incompleteTorrent.Name.Returns("Manual Download");
+        incompleteTorrent.IsIgnored(Arg.Any<List<string>>()).Returns(false);
+        incompleteTorrent.Category.Returns("completed");
+
+        var dbClient = _fixture.DataContext.DownloadClients.First();
+        var mockDownloadService = _fixture.CreateMockDownloadService();
+        mockDownloadService.ClientConfig.Returns(dbClient);
+        mockDownloadService.GetSeedingDownloads().Returns([]);
+        mockDownloadService.GetIncompleteDownloads().Returns([incompleteTorrent]);
+        mockDownloadService
+            .FilterDownloadsToBeCleanedAsync(Arg.Any<List<ITorrentItemWrapper>>(), Arg.Any<List<ISeedingRule>>())
+            .Returns(callInfo => callInfo.Arg<List<ITorrentItemWrapper>>());
+
+        _fixture.DownloadServiceFactory
+            .GetDownloadService(Arg.Any<DownloadClientConfig>())
+            .Returns(mockDownloadService);
+
+        var sut = CreateSut();
+
+        // Act
+        await ExecuteWithTimeAdvance(sut);
+
+        // Assert
+        await mockDownloadService.Received(1).AbandonDownloadsAsync(
+            Arg.Is<List<ITorrentItemWrapper>>(d => d.Single().DownloadId == "manual-hash"),
+            Arg.Any<List<ISeedingRule>>());
+        _logger.HasLogContaining(LogLevel.Information, "No seeding downloads found").ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ExecuteInternalAsync_WhenNoAbandonRules_DoesNotFetchIncompleteDownloads()
+    {
+        // Arrange
+        TestDataContextFactory.AddDownloadClient(_fixture.DataContext);
+        TestDataContextFactory.AddSeedingRule(_fixture.DataContext);
+
+        var dbClient = _fixture.DataContext.DownloadClients.First();
+        var mockDownloadService = _fixture.CreateMockDownloadService();
+        mockDownloadService.ClientConfig.Returns(dbClient);
+        mockDownloadService.GetSeedingDownloads().Returns([]);
+
+        _fixture.DownloadServiceFactory
+            .GetDownloadService(Arg.Any<DownloadClientConfig>())
+            .Returns(mockDownloadService);
+
+        var sut = CreateSut();
+
+        // Act
+        await sut.ExecuteAsync();
+
+        // Assert
+        await mockDownloadService.DidNotReceive().GetIncompleteDownloads();
+    }
+
+    [Fact]
+    public async Task ExecuteInternalAsync_IncompleteDownloads_AreNeverPassedToUnlinkedOrDeadTorrentSteps()
+    {
+        // Arrange
+        TestDataContextFactory.AddDownloadClient(_fixture.DataContext);
+        TestDataContextFactory.AddSeedingRule(_fixture.DataContext, abandonBelowPercentage: 10);
+
+        var seedingTorrent = Substitute.For<ITorrentItemWrapper>();
+        seedingTorrent.DownloadId.Returns("seeding-hash");
+        seedingTorrent.Name.Returns("Seeding");
+        seedingTorrent.IsIgnored(Arg.Any<List<string>>()).Returns(false);
+
+        var incompleteTorrent = Substitute.For<ITorrentItemWrapper>();
+        incompleteTorrent.DownloadId.Returns("incomplete-hash");
+        incompleteTorrent.Name.Returns("Incomplete");
+        incompleteTorrent.IsIgnored(Arg.Any<List<string>>()).Returns(false);
+
+        var dbClient = _fixture.DataContext.DownloadClients.First();
+        var mockDownloadService = _fixture.CreateMockDownloadService();
+        mockDownloadService.ClientConfig.Returns(dbClient);
+        mockDownloadService.GetSeedingDownloads().Returns([seedingTorrent]);
+        mockDownloadService.GetIncompleteDownloads().Returns([incompleteTorrent]);
+
+        _fixture.DownloadServiceFactory
+            .GetDownloadService(Arg.Any<DownloadClientConfig>())
+            .Returns(mockDownloadService);
+
+        var sut = CreateSut();
+
+        // Act
+        await ExecuteWithTimeAdvance(sut);
+
+        // Assert
+        await _fixture.DeadTorrentService.Received(1).ProcessAsync(
+            Arg.Any<IDeadTorrentCapable>(),
+            Arg.Is<List<ITorrentItemWrapper>>(d => d.All(t => t.DownloadId == "seeding-hash")));
+        await _fixture.DeadTorrentService.DidNotReceive().ProcessAsync(
+            Arg.Any<IDeadTorrentCapable>(),
+            Arg.Is<List<ITorrentItemWrapper>>(d => d.Any(t => t.DownloadId == "incomplete-hash")));
+    }
+
+    [Fact]
+    public async Task ExecuteInternalAsync_WhenArrIsUnreachable_NeverAbandons()
+    {
+        // Arrange
+        TestDataContextFactory.AddDownloadClient(_fixture.DataContext);
+        TestDataContextFactory.AddSeedingRule(_fixture.DataContext, abandonBelowPercentage: 10);
+        TestDataContextFactory.AddSonarrInstance(_fixture.DataContext);
+
+        var incompleteTorrent = Substitute.For<ITorrentItemWrapper>();
+        incompleteTorrent.DownloadId.Returns("maybe-arr-hash");
+        incompleteTorrent.Name.Returns("Maybe Arr Download");
+        incompleteTorrent.IsIgnored(Arg.Any<List<string>>()).Returns(false);
+
+        var dbClient = _fixture.DataContext.DownloadClients.First();
+        var mockDownloadService = _fixture.CreateMockDownloadService();
+        mockDownloadService.ClientConfig.Returns(dbClient);
+        mockDownloadService.GetSeedingDownloads().Returns([]);
+        mockDownloadService.GetIncompleteDownloads().Returns([incompleteTorrent]);
+
+        _fixture.DownloadServiceFactory
+            .GetDownloadService(Arg.Any<DownloadClientConfig>())
+            .Returns(mockDownloadService);
+
+        _fixture.ArrClientFactory
+            .GetClient(Arg.Any<InstanceType>(), Arg.Any<float>())
+            .Returns(Substitute.For<IArrClient>());
+
+        _fixture.ArrQueueReader
+            .ReadAllAsync(Arg.Any<IArrClient>(), Arg.Any<ArrInstance>())
+            .ThrowsAsync(new Exception("Sonarr is down"));
+
+        var sut = CreateSut();
+
+        // Act
+        await Should.ThrowAsync<Exception>(() => ExecuteWithTimeAdvance(sut));
+
+        // Assert
+        await mockDownloadService.DidNotReceive().GetIncompleteDownloads();
+        await mockDownloadService.DidNotReceive()
+            .AbandonDownloadsAsync(Arg.Any<List<ITorrentItemWrapper>>(), Arg.Any<List<ISeedingRule>>());
+    }
+
+    [Fact]
+    public async Task ExecuteInternalAsync_FetchesIncompleteDownloads_AfterReadingArrQueues()
+    {
+        // Arrange
+        TestDataContextFactory.AddDownloadClient(_fixture.DataContext);
+        TestDataContextFactory.AddSeedingRule(_fixture.DataContext, abandonBelowPercentage: 10);
+        TestDataContextFactory.AddSonarrInstance(_fixture.DataContext);
+
+        var dbClient = _fixture.DataContext.DownloadClients.First();
+        var mockDownloadService = _fixture.CreateMockDownloadService();
+        mockDownloadService.ClientConfig.Returns(dbClient);
+        mockDownloadService.GetSeedingDownloads().Returns([]);
+        mockDownloadService.GetIncompleteDownloads().Returns([]);
+
+        _fixture.DownloadServiceFactory
+            .GetDownloadService(Arg.Any<DownloadClientConfig>())
+            .Returns(mockDownloadService);
+
+        _fixture.ArrClientFactory
+            .GetClient(Arg.Any<InstanceType>(), Arg.Any<float>())
+            .Returns(Substitute.For<IArrClient>());
+
+        _fixture.ArrQueueReader
+            .ReadAllAsync(Arg.Any<IArrClient>(), Arg.Any<ArrInstance>())
+            .Returns([]);
+
+        var sut = CreateSut();
+
+        // Act
+        await ExecuteWithTimeAdvance(sut);
+
+        // Assert
+        Received.InOrder(() =>
+        {
+            _fixture.ArrQueueReader.ReadAllAsync(Arg.Any<IArrClient>(), Arg.Any<ArrInstance>());
+            mockDownloadService.GetIncompleteDownloads();
+        });
+    }
+
+    [Fact]
+    public async Task ExecuteInternalAsync_WhenIncompleteFetchThrows_StillCleansSeedingDownloads()
+    {
+        // Arrange
+        TestDataContextFactory.AddDownloadClient(_fixture.DataContext);
+        TestDataContextFactory.AddSeedingRule(_fixture.DataContext, abandonBelowPercentage: 10);
+
+        var seedingTorrent = Substitute.For<ITorrentItemWrapper>();
+        seedingTorrent.DownloadId.Returns("seeding-hash");
+        seedingTorrent.Name.Returns("Seeding");
+        seedingTorrent.IsIgnored(Arg.Any<List<string>>()).Returns(false);
+
+        var dbClient = _fixture.DataContext.DownloadClients.First();
+        var mockDownloadService = _fixture.CreateMockDownloadService();
+        mockDownloadService.ClientConfig.Returns(dbClient);
+        mockDownloadService.GetSeedingDownloads().Returns([seedingTorrent]);
+        mockDownloadService.GetIncompleteDownloads().ThrowsAsync(new Exception("client hiccup"));
+        mockDownloadService
+            .FilterDownloadsToBeCleanedAsync(Arg.Any<List<ITorrentItemWrapper>>(), Arg.Any<List<ISeedingRule>>())
+            .Returns(callInfo => callInfo.Arg<List<ITorrentItemWrapper>>());
+
+        _fixture.DownloadServiceFactory
+            .GetDownloadService(Arg.Any<DownloadClientConfig>())
+            .Returns(mockDownloadService);
+
+        var sut = CreateSut();
+
+        // Act
+        await ExecuteWithTimeAdvance(sut);
+
+        // Assert
+        await mockDownloadService.Received(1)
+            .CleanDownloadsAsync(Arg.Any<List<ITorrentItemWrapper>>(), Arg.Any<List<ISeedingRule>>());
+        _logger.HasLogContaining(LogLevel.Error, "Failed to get incomplete downloads").ShouldBeTrue();
+        await mockDownloadService.DidNotReceive()
+            .AbandonDownloadsAsync(Arg.Any<List<ITorrentItemWrapper>>(), Arg.Any<List<ISeedingRule>>());
+    }
+
     #endregion
 
     #region ChangeUnlinkedCategoriesAsync Tests
